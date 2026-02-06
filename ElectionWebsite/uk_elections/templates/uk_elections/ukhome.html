@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}UK Home{% endblock title %}
+
+{% block menubar %}
+  <li class="nav"><a class="nav" href="/">Home</a></li>
+  <li class="nav"><a class="nav active" href="/uk">UK Elections</a></li>
+  <!-- <li class="nav"><a class="nav" href="/us">US</a></li> -->
+{% endblock menubar %}
+
+{% block submenubar %}
+  <li class="nav"><a class="nav active" href="/uk">UK Home</a></li>
+  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
+  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
+{% endblock submenubar %}
+
+{% block content %}
+
+{% endblock content %}

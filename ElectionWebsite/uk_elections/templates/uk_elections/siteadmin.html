@@ -1,0 +1,21 @@
+{% extends "uk_elections/ukhome.html" %}
+
+{% block title %}UK Home{% endblock title %}
+
+{% block submenubar %}
+  <li class="nav"><a class="nav active" href="/uk">UK Home</a></li>
+  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
+  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
+{% endblock submenubar %}
+
+{% block content %}
+
+<p>UK Elections</p>
+
+<form method="post"  action="/uk/siteadmin" enctype="multipart/form-data">
+  {% csrf_token %}
+  <input type="file" name="myfile">
+  <button type="submit">Upload</button>
+</form>
+
+{% endblock content %}

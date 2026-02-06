@@ -1,0 +1,91 @@
+{% extends "uk_elections/ukhome.html" %}
+
+{% block title %}Elections{% endblock title %}
+
+{% block submenubar %}
+  <li class="nav"><a class="nav" href="/uk">UK Home</a></li>
+  <li class="nav"><a class="nav active" href="/uk/elections/home">Elections</a></li>
+  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
+{% endblock submenubar %}
+
+{% block content %}
+
+{% if pageview == 'home' %}
+
+  <h2>UK General Elections</h2>
+
+  <ul>
+    {% for election in display %}
+      <li>
+        <a href="/uk/elections/{{ election.year }}/map">{{ election.year }} Map</a> -
+        <a href="/uk/elections/{{ election.year }}/hex">{{ election.year }} Hex</a>
+      </li>
+    {% endfor %}
+  </ul>
+  <ul>
+    {% for election in partial %}
+      <li>
+        <a href="/uk/elections/{{ election.year }}/results">{{ election.year }} Results</a>
+      </li>
+    {% endfor %}
+  </ul>
+
+{% else %}
+
+  <h2>{{ election.year }} General Election</h2>
+
+  <h3>Full Results</h3>
+
+  {% if pageview == 'map' %}
+    {% if last and next %}
+      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
+    {% elif last %}
+      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a></p>
+    {% else %}
+      <p><a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
+    {% endif %}
+    <p><a href="/uk/elections/{{ election.year }}/hex">Switch to {{ election.year }} Election Hex</a></p>
+  {% elif pageview == 'hex' %}
+    {% if last and next %}
+      <p><a href="/uk/elections/{{ last.year }}/hex">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/hex">Next Election</a></p>
+    {% elif last %}
+      <p><a href="/uk/elections/{{ last.year }}/hex">Previous Election</a></p>
+    {% else %}
+      <p><a href="/uk/elections/{{ next.year }}/hex">Next Election</a></p>
+    {% endif %}
+    <p><a href="/uk/elections/{{ election.year }}/map">Switch to {{ election.year }} Election Map</a></p>
+  {% else %}
+    {% if last and next %}
+      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
+    {% elif last %}
+      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a></p>
+    {% else %}
+      <p><a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
+    {% endif %}
+  {% endif %}
+
+  <table id="table">
+    <tr><th colspan="2">Party</th><th>Seats Won</th></tr>
+    {% for row in overall_results %}
+      <tr><td style="background-color:{{ row.2 }};">  </td><td>{{ row.0 }}</td><td>{{ row.1 }}</td></tr>
+    {% endfor %}
+  </table>
+  <br><br>
+
+  {% if pageview == 'map' %}
+
+    {{div| safe}}
+
+    {{script| safe}}
+
+  {% elif pageview == 'hex' %}
+
+    {{div| safe}}
+
+    {{script| safe}}
+
+  {% endif %}
+
+{% endif %}
+
+{% endblock content %}
