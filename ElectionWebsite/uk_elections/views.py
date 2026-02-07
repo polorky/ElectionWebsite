@@ -226,15 +226,6 @@ def get_const_object(name):
 
 ########## PAGE VIEWS ##########
 
-def home(request):
-    '''
-        View for the home page - currently returns placeholder
-    '''
-
-    context = {}
-
-    return render(request, "uk_elections/ukhome.html", context)
-
 def electionView(request, election, map_type='None'):
 
     module_dir = os.path.dirname(__file__)   #get current directory
@@ -539,52 +530,6 @@ def constView(request, const):
 
 ########## FUNCTIONS AND VIEWS TO PARSE RAW DATA ##########
 
-def parse_parties(df):
-
-    df.fillna('',axis=1,inplace=True)
-    for row in df.index:
-        try:
-            PARTY.objects.get(name=df.Party[row])
-        except:
-            if df['Main Party'][row] != '':
-                parent = PARTY.objects.get(name=df['Main Party'][row])
-            else:
-                parent = None
-
-            p = PARTY(name=df.Party[row],
-                      colour=df.Colour[row],
-                      cScale=df['Colour Scale'][row],
-                      parent=parent)
-            p.save()
-
-def parse_elections(df):
-
-    df.fillna('',axis=1,inplace=True)
-
-    for row in df.index:
-        #if str(df['Year'][row]) not in fullElectionList:
-            #continue
-        try:
-            ELECTION.objects.get(year=df['Year'][row])
-        except:
-            if isinstance(df['Date'][row],str):
-                startDate, endDate = df['Date'][row].split('-')
-                startDate = datetime.strptime(startDate, "%d/%m/%Y")
-                endDate = datetime.strptime(endDate, "%d/%m/%Y")
-            else:
-                startDate = df['Date'][row]
-                endDate = None
-            e = ELECTION(year=df['Year'][row],
-                         startDate=startDate,
-                         endDate=endDate,
-                         turnout=df['Turnout'][row],
-                         largest_party=df['Largest Party'][row],
-                         prime_minister=df['Prime Minister'][row],
-                         second_party=df['Party'][row],
-                         opp_leader=df['Losing Leader'][row],
-                         map=df['SVG File'][row],
-                         hex=df['Hex Col'][row])
-            e.save()
 
 def parse_consts(df):
 
@@ -1074,24 +1019,6 @@ def parse_byelection(rows):
             r.save()
 
     return 'success'
-
-def parse_regions(df):
-
-    for row in df.index:
-        r = REGION(name=df['Region'][row])
-        r.save()
-
-def parse_counties(df):
-
-    for row in df.index:
-
-        try:
-            COUNTY.objects.get(name=df['County'][row])
-        except:
-            c = COUNTY(name=df['County'][row],
-                       region=REGION.objects.get(name=df['Region'][row]),
-                       colour=df['Colour'][row])
-            c.save()
 
 def find_winners():
 

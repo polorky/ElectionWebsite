@@ -1,13 +1,13 @@
 from django.db import models
 
-class REGION(models.Model):
+class Region(models.Model):
 
     name = models.CharField(max_length=30)
 
     def __str__(self):
         return self.name
 
-class COUNTY(models.Model):
+class County(models.Model):
 
     name = models.CharField(max_length=30)
     region = models.ForeignKey(REGION,on_delete=models.CASCADE)
@@ -16,7 +16,7 @@ class COUNTY(models.Model):
     def __str__(self):
         return self.name
 
-class PARTY(models.Model):
+class Party(models.Model):
 
     name = models.CharField(max_length=255)
     colour = models.CharField(max_length=7)
@@ -26,36 +26,7 @@ class PARTY(models.Model):
     def __str__(self):
         return self.name
 
-class ELECTION(models.Model):
-    '''
-    Class for general elections
-    '''
-    year = models.CharField(max_length=9)
-    startDate = models.DateTimeField()
-    endDate = models.DateTimeField(blank=True,null=True)
-    turnout = models.FloatField()
-    largest_party = models.TextField(blank=True,null=True)
-    prime_minister = models.TextField(blank=True,null=True)
-    second_party = models.TextField(blank=True,null=True)
-    opp_leader = models.TextField(blank=True,null=True)
-    map = models.CharField(max_length=20,blank=True,null=True)
-    hex = models.CharField(max_length=20,blank=True,null=True)
-
-    def __str__(self):
-        return self.year
-
-class ELECTIONSEATS(models.Model):
-    '''
-    Gives number of seats won by a party at an election
-    '''
-    election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
-    party = models.ForeignKey(PARTY, on_delete=models.CASCADE)
-    seats = models.IntegerField()
-
-    def __str__(self):
-        return 'ELECTIONSEATS - ' + self.election.year + ' - ' + self.party.name
-
-class COALITION(models.Model):
+class Coalition(models.Model):
 
     name = models.CharField(max_length=50)
     elections = models.ManyToManyField(ELECTION,blank=True)
@@ -64,28 +35,66 @@ class COALITION(models.Model):
     def __str__(self):
         return self.name
 
-class CONSTITUENCY(models.Model):
+class Election(models.Model):
+    '''
+    Class for general elections
+    '''
+    type = models.CharField(max_length=20, choices=(('GE', 'General Election'), ('BE', 'By-Election')))
+    date = models.DateTimeField()
+    endDate = models.DateTimeField(blank=True,null=True)
+    turnout_votes = models.FloatField(blank=True,null=True)
+    turnout_percent = models.FloatField(blank=True,null=True)
+    notes = models.TextField(blank=True,null=True)
+
+    # For general elections only
+    year = models.CharField(max_length=4,blank=True,null=True)
+    largest_party = models.TextField(blank=True,null=True)
+    prime_minister = models.TextField(blank=True,null=True)
+    second_party = models.TextField(blank=True,null=True)
+    opp_leader = models.TextField(blank=True,null=True)
+    map = models.CharField(max_length=20,blank=True,null=True)
+    hex = models.CharField(max_length=20,blank=True,null=True)
+
+    # For byelections only
+    constituency = models.ForeignKey(
+        Constituency, 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True,
+        help_text="Only for by-elections"
+    )
+    oldMP = models.CharField(max_length=100,blank=True,null=True)
+
+    def __str__(self):
+        if self.type == 'GE':
+            return 'General Election - ' + self.year
+        else:
+            return 'By-Election - ' + self.constituency.name + ' ' + str(self.date)
+
+class Constituency(models.Model):
     '''
     Class for UK constituencies
     '''
     name = models.CharField(max_length=255)
+    alt_name = models.CharField(max_length=255,blank=True,null=True)
+    dedupe_name = models.CharField(max_length=255)
     originally_created = models.DateTimeField()
     modern_county = models.ForeignKey(COUNTY, on_delete=models.CASCADE, related_name='modern_county')
     historic_county = models.ForeignKey(COUNTY, on_delete=models.CASCADE, related_name='historic_county')
     election_list = models.TextField()
-    orig_preds = models.TextField(default=None,null=True,blank=True)
+    created = models.TextField(default=None,null=True,blank=True)
     abolished = models.TextField(default=None,null=True,blank=True)
-    successors = models.TextField(default=None,null=True,blank=True)
-    recreated = models.TextField(default=None,null=True,blank=True)
-    predecessors = models.TextField(default=None,null=True,blank=True)
-    prev_name1 = models.TextField(default=None,null=True,blank=True)
-    name_changed1 = models.TextField(default=None,null=True,blank=True)
-    prev_name2 = models.TextField(default=None,null=True,blank=True)
-    name_changed2 = models.TextField(default=None,null=True,blank=True)
-    four_mps = models.TextField(default=None,null=True,blank=True)
-    three_mps = models.TextField(default=None,null=True,blank=True)
-    two_mps = models.TextField(default=None,null=True,blank=True)
+    seats = models.IntegerField(default=1)
     alternating = models.TextField(default=None,null=True,blank=True)
+
+    # Self-referential relationship for succession
+    predecessors = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        related_name='successors',
+        blank=True,
+        help_text="Constituencies this one was created from or replaced"
+    )
 
     def __str__(self):
         return self.name
@@ -110,48 +119,31 @@ class CONSTITUENCY(models.Model):
 
         return mps
 
-class CONSTINSTANCE(models.Model):
+class ConstituencyResult(models.Model):
     '''
-    Continuous period of election for which a constituency existed with predecessors and successors
+    Class to record constituency-level results for an election
     '''
+
     constituency = models.ForeignKey(CONSTITUENCY, on_delete=models.CASCADE)
-    created = models.ForeignKey(ELECTION, on_delete=models.CASCADE,related_name='created')
-    abolished = models.ForeignKey(ELECTION, on_delete=models.CASCADE, blank=True,null=True,related_name='abolished')
-    predecessors = models.TextField(blank=True,null=True)
-    successors = models.TextField(blank=True,null=True)
-
-    #def __str__(self):
-        #return self.constituency.name + ' - ' + self.created.year + ' to ' + self.abolished.year
-
-class CONSTSEATS(models.Model):
-    '''
-    Gives number of MPs for a constituency for a given election and its name at that point
-    '''
-    election = models.ForeignKey(ELECTION,on_delete=models.CASCADE)
-    constituency = models.ForeignKey(CONSTITUENCY,on_delete=models.CASCADE)
-    name = models.CharField(max_length=255)
-    seats = models.IntegerField()
-    winner_found = models.BooleanField(default=False)
-
-    def __str__(self):
-        return 'CONSTSEATS - ' + self.election.year + ' - ' + self.constituency.name
-
-class BYELECTION(models.Model):
-    '''
-    Class for by-elections
-    '''
-    constituency = models.ForeignKey(CONSTITUENCY, on_delete=models.CASCADE)
-    date = models.DateTimeField()
-    oldMP = models.CharField(max_length=100,blank=True,null=True)
+    election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
+    turnout_votes = models.IntegerField(blank=True,null=True)
+    turnout_percent = models.FloatField(blank=True,null=True)    
+    seat_number = models.IntegerField(default=1)
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):
-        return 'Byelection - ' + self.constituency.name + ' ' + str(self.date)
+        if self.election.type == 'GE':
+            return f'General Election Result {self.constituency.name} - {self.election.year}'
+        else:
+            return f'By-Election Result {self.constituency.name} - {self.election.date}'
 
-class RESULT(models.Model):
+class CandidateResult(models.Model):
     '''
-    Class to record candidate level results for general elections
+    Class to record results for each candidate in an election
     '''
+    
+    constituency = models.ForeignKey(CONSTITUENCY, on_delete=models.CASCADE)
+    election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)    
     party = models.ForeignKey(PARTY, on_delete=models.CASCADE)
     candidate = models.CharField(max_length=100)
     votes = models.IntegerField(blank=True,null=True)
@@ -159,60 +151,8 @@ class RESULT(models.Model):
     unopposed = models.BooleanField(default=False)
     elected = models.BooleanField(default=False)
     disqualified = models.BooleanField(default=False)
-
-    class Meta:
-        abstract = True
-
-class GENERALRESULT(RESULT):
-
-    constituency = models.ForeignKey(CONSTITUENCY, on_delete=models.CASCADE)
-    election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
+    byelection = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):
-        return 'Result ' + self.constituency.name + ' - '+ self.election.year
-
-class BYRESULT(RESULT):
-    '''
-    Class to record candidate level results for byelections
-    '''
-    byelection = models.ForeignKey(BYELECTION, on_delete=models.CASCADE)
-
-    def __str__(self):
-        return 'Byelection Result ' + self.byelection.constituency.name + ' - ' + str(self.byelection.date)
-
-class TURNOUT(models.Model):
-    '''
-    Class to record turnout and notes for an election and constituency
-    '''
-    votes = models.IntegerField(blank=True,null=True)
-    percent = models.FloatField(blank=True,null=True)
-    notes = models.TextField(blank=True,null=True)
-
-    class Meta:
-        abstract = True
-
-class GENERALTURNOUT(TURNOUT):
-
-    election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
-    constituency = models.ForeignKey(CONSTITUENCY, on_delete=models.CASCADE)
-
-    def __str__(self):
-        return 'Turnout ' + self.constituency.name + ' - '+ self.election.year
-
-class BYTURNOUT(TURNOUT):
-
-    byelection = models.ForeignKey(BYELECTION, on_delete=models.CASCADE)
-
-    def __str__(self):
-        return 'Byelection Turnout ' + self.byelection.constituency.name + ' - '+ str(self.byelection.date)
-
-# class HEX(models.Model):
-#     '''
-#     Class to record hex coordinates for constituencies for each election
-#     '''
-#     x = models.IntegerField()
-#     y = models.IntegerField()
-#     z = models.IntegerField()
-#     constituency = models.ForeignKey(CONSTITUENCY,on_delete=models.CASCADE)
-#     elections = models.ManyToManyField(ELECTION)
+        return f'By-Election Result {self.byelection.constituency.name} - {self.byelection.date}'
