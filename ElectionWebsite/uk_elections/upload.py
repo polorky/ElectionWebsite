@@ -100,7 +100,28 @@ class Parser:
             alternating = df.loc[row,'Alt']
 
             # start, end, pred, succ
-            events = self.get_const_instances(df,row)
+            events, dates_sorted = self.get_const_instances(df,row)
+
+            creation_details = [dates_sorted[0], *events[dates_sorted[0]]]
+            for i, date in enumerate(dates_sorted):
+                event = events[date]
+                if event[0] == 'abolished':
+                    c = Constituency(
+                        name=df.loc[row,'Name'],
+                        modern_county=County.objects.get(name=modern_county),
+                        historic_county=County.objects.get(name=historic_county),
+                        alt_name=alt_name,
+                        alternating=alternating,
+                        start_date=creation_details[0],
+                        end_date=date,
+                        predecessor=creation_details[2],
+                        successor=event[1],
+                        seats=creation_details[2]
+                    )
+                elif event[0] == 'recreated':
+                    creation_details = [date, event[0], event[1], event[2]]
+                elif event[0] == 'seat_change':
+                    pass
             try:
                 Constituency.objects.get(name=df.loc[row,'Name'],)
             except:
@@ -135,9 +156,9 @@ class Parser:
 
         def check_seat_key(events, seats, date):
             if date in events:
-                events[date][3] = seats
+                events[date][2] = seats
             else:
-                events[date] = ['seat_change','seats','',seats]
+                events[date] = ['seat_change','',seats]
             return events
 
         events = {}
@@ -148,25 +169,14 @@ class Parser:
         succs = df.loc[row,'Successors'].split('|')
 
         created = get_date_from_election_year_string(df.loc[row,'Created'])
-        events[created] = ['created','status',org_preds,1]
+        events[created] = ['created',org_preds,1]
 
         abolished = [get_date_from_election_year_string(x) for x in df.loc[row,'Abolished'].split('|') if x != '']
         for i, date in enumerate(abolished):
-            events[date] = ['abolished','status',succs[i],1]
+            events[date] = ['abolished',succs[i],1]
         recreated = [get_date_from_election_year_string(x) for x in df.loc[row,'Re-created'].split('|') if x != '']
         for i, date in enumerate(recreated):
-            events[date] = ['recreated','status',preds[i],1]
-        
-        # Deal with name changes
-        prev_name1 = df.loc[row,'Previous Name'].split('|')
-        prev_name2 = df.loc[row,'Previous Name 2'].split('|')
-
-        name_changed1 = [get_date_from_election_year_string(x) for x in df.loc[row,'Changed'].split('|') if x != '']        
-        for i, date in enumerate(name_changed1):
-            events[date] = ['name_change','name',prev_name1[i],1]
-        name_changed2 = [get_date_from_election_year_string(x) for x in df.loc[row,'Changed 2'].split('|') if x != '']
-        for i, date in enumerate(name_changed2):
-            events[date] = ['name_change','name',prev_name2[i],1]
+            events[date] = ['recreated',preds[i],1]
         
         # Deal with number of seats
         four_mps = [get_date_from_election_year_string(x) for x in df.loc[row,'4 MPs'].split('|') if x != '']
@@ -183,9 +193,9 @@ class Parser:
             events = check_seat_key(events, 1, date)
 
         # Sort events chronologically
-        events = sorted(events.keys())
+        dates_sorted = sorted(events.keys())
 
-        return events
+        return events, dates_sorted
 
 
 

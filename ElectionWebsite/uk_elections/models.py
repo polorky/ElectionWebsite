@@ -77,7 +77,6 @@ class Constituency(models.Model):
     '''
     name = models.CharField(max_length=255)
     alt_name = models.CharField(max_length=255,blank=True,null=True)
-    dedupe_name = models.CharField(max_length=255)
     originally_created = models.DateTimeField()
     modern_county = models.ForeignKey(COUNTY, on_delete=models.CASCADE, related_name='modern_county')
     historic_county = models.ForeignKey(COUNTY, on_delete=models.CASCADE, related_name='historic_county')
