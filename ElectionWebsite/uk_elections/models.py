@@ -103,17 +103,17 @@ class Constituency(models.Model):
         nearest_lower_date = ''
         nearest_election = ''
 
-        for election in ELECTION.objects.all():
-            if election.startDate.replace(tzinfo=None) > date:
+        for election in Election.objects.all():
+            if election.date.replace(tzinfo=None) > date:
                 continue
             elif not nearest_lower_date:
                 nearest_election = election
-                nearest_lower_date = election.startDate.replace(tzinfo=None)
-            elif election.startDate.replace(tzinfo=None) > nearest_lower_date:
+                nearest_lower_date = election.date.replace(tzinfo=None)
+            elif election.date.replace(tzinfo=None) > nearest_lower_date:
                 nearest_election = election
-                nearest_lower_date = election.startDate.replace(tzinfo=None)
+                nearest_lower_date = election.date.replace(tzinfo=None)
 
-        results = GENERALRESULT.objects.filter(constituency=self).filter(election=nearest_election).filter(elected=True)
+        results = CandidateResult.objects.filter(constituency=self).filter(election=nearest_election).filter(elected=True)
         mps = [result.candidate for result in results]
 
         return mps
@@ -127,7 +127,6 @@ class ConstituencyResult(models.Model):
     election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
     turnout_votes = models.IntegerField(blank=True,null=True)
     turnout_percent = models.FloatField(blank=True,null=True)    
-    seat_number = models.IntegerField(default=1)
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):
@@ -150,7 +149,6 @@ class CandidateResult(models.Model):
     unopposed = models.BooleanField(default=False)
     elected = models.BooleanField(default=False)
     disqualified = models.BooleanField(default=False)
-    byelection = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):
