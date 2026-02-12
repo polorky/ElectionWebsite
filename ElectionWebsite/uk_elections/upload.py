@@ -1,14 +1,30 @@
 import datetime
+import pandas as pd
 
 from ElectionWebsite.uk_elections.views import create_const_seats_db
 from .models import *
 from.utility_functions import get_date_from_election_year_string
 
+parsing_list = (
+                ('Regions', 'region'),
+                ('Counties', 'county'),
+                ('Parties', 'party'),
+                ('Elections', 'general_election'),
+                ('Const_sum', 'constituency'),
+                ('Const_full', 'result')
+            )
+
 class Uploader:
 
-    def __init__(self, file, datatype):
-        self.file = file
-        p = Parser(datatype)
+    def __init__(self, file):
+        self.status = 'Upload successful'
+        for t in parsing_list:
+            df = pd.read_csv(file, sheet_name=t[0])
+            p = Parser(t[1], df)
+            try:
+                p.parse()
+            except Exception as e:
+                self.status = f'Error parsing {t[0]}: {e}'
 
 class Parser:
 
@@ -107,47 +123,50 @@ class Parser:
             for i, date in enumerate(dates_sorted):
                 event = events[date]
                 if event[0] == 'abolished':
-                    c = Constituency(
-                        name=df.loc[row,'Name'],
-                        modern_county=County.objects.get(name=modern_county),
-                        historic_county=County.objects.get(name=historic_county),
-                        alt_name=alt_name,
-                        alternating=alternating,
-                        start_date=creation_details[0],
-                        end_date=date,
-                        predecessor=creation_details[2],
-                        successor=event[1],
-                        seats=creation_details[2]
-                    )
+                    try:
+                        Constituency.objects.get(name=df.loc[row,'Name'],start_date=creation_details[0])
+                    except:
+                        c = Constituency(
+                            name=df.loc[row,'Name'],
+                            modern_county=County.objects.get(name=modern_county),
+                            historic_county=County.objects.get(name=historic_county),
+                            alt_name=alt_name,
+                            alternating=alternating,
+                            start_date=creation_details[0],
+                            end_date=date,
+                            predecessor=creation_details[2],
+                            successor=event[1],
+                            seats=creation_details[2]
+                        )
                 elif event[0] == 'recreated':
                     creation_details = [date, event[0], event[1], event[2]]
                 elif event[0] == 'seat_change':
-                    c = Constituency(
-                        name=df.loc[row,'Name'],
-                        modern_county=County.objects.get(name=modern_county),
-                        historic_county=County.objects.get(name=historic_county),
-                        alt_name=alt_name,
-                        alternating=alternating,
-                        start_date=creation_details[0],
-                        end_date=date,
-                        seats=creation_details[2]
-                    )
-                    creation_details = [date, event[0], df.loc[row,'Name'], event[2]]
+                    try:
+                        Constituency.objects.get(name=df.loc[row,'Name'],start_date=creation_details[0])
+                    except:
+                        c = Constituency(
+                            name=df.loc[row,'Name'],
+                            modern_county=County.objects.get(name=modern_county),
+                            historic_county=County.objects.get(name=historic_county),
+                            alt_name=alt_name,
+                            alternating=alternating,
+                            start_date=creation_details[0],
+                            end_date=date,
+                            seats=creation_details[2]
+                        )
+                        creation_details = [date, event[0], df.loc[row,'Name'], event[2]]
             try:
-                Constituency.objects.get(name=df.loc[row,'Name'],)
+                Constituency.objects.get(name=df.loc[row,'Name'],start_date=creation_details[0])
             except:
-                electionList = get_election_list(df,row)
-                c = CONSTITUENCY(
-                        name=df.loc[row,'Name'],
-                        modern_county=County.objects.get(name=modern_county),
-                        historic_county=County.objects.get(name=historic_county),
-                        alt_name=alt_name,
-                        alternating=alternating,
-                        start_date=creation_details[0],
-                        end_date=date,
-                        seats=creation_details[2]
-                    )
-                c.save()
+                c = Constituency(
+                    name=df.loc[row,'Name'],
+                    modern_county=County.objects.get(name=modern_county),
+                    historic_county=County.objects.get(name=historic_county),
+                    alt_name=alt_name,
+                    alternating=alternating,
+                    start_date=creation_details[0],
+                    seats=creation_details[2]
+                )
         
         for row in df.index:
             for i, date in enumerate(dates_sorted):
@@ -164,6 +183,8 @@ class Parser:
                             obj = Constituency.objects.filter(name=successor, start_date__lt=date).order_by('-start_date').first()
                         if obj:
                             succ_objs.append(obj)
+                        else:
+                            raise ValueError(f'Successor constituency {successor} listed for {c.name} abolished in {date} not found')
                     # keep the original successor string for backward compatibility
                     c.successor.set(succ_objs)
                     c.save()
@@ -179,12 +200,17 @@ class Parser:
                             obj = Constituency.objects.filter(name=predecessor, start_date__lt=date).order_by('-start_date').first()
                         if obj:
                             prec_objs.append(obj)
+                        else:
+                            raise ValueError(f'Predecessor constituency {predecessor} listed for {c.name} recreated in {date} not found')
                     c.predecessor.set(prec_objs)
                     c.save()
                 elif event[0] == 'seat_change':
-                    c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
-                    c.seats = event[2]
-                    c.save()
+                    new_c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
+                    old_c = Constituency.objects.get(name=df.loc[row,'Name'],end_date=date)
+                    new_c.predecessors.add(old_c)
+                    new_c.save()
+                    old_c.successors.add(new_c)
+                    old_c.save()
 
     def get_const_instances(self, df, row):
         '''
@@ -246,13 +272,13 @@ class Parser:
             num_disqualified = 0
 
             if 'B' in year:
-                be_obj = self.create_byelection(year, constituency, sub_df)
+                be_obj, num_elected = self.create_byelection(year, constituency, sub_df)
 
                 for row in sub_df.index:
                     if sub_df.loc[row,'Party'] == 'Turnout':
                         continue
                     
-                    num_disqualified = self.create_candidate_result(be_obj, constituency, sub_df, row, num_disqualified)
+                    num_disqualified = self.create_candidate_result(be_obj, constituency, sub_df, row, num_disqualified, num_elected)
 
             else:
                 election = Election.objects.get(year=year)
@@ -264,17 +290,19 @@ class Parser:
                     
                     num_disqualified = self.create_candidate_result(election, constituency, sub_df, row, num_disqualified)
     
-    def create_candidate_result(self, election, constituency, sub_df, row, num_disqualified):
+    def create_candidate_result(self, election, constituency, sub_df, row, num_disqualified, num_elected=None):
 
         unopposed = sub_df.loc[row,'Votes'] == 'Unopposed'
+        disqualified = False
 
         if isinstance(sub_df.loc[row,'Votes'],str) and '*' in sub_df.loc[row,'Votes']:
             votes = sub_df.loc[row,'Votes'].replace('*','')
             disqualified = True
             num_disqualified += 1
+        elif unopposed:
+            votes = None
         else:
             votes = sub_df.loc[row,'Votes']
-            disqualified = False
 
         notes = sub_df[sub_df['Notes'] != '']['Notes'].values
         if len(notes) > 1:
@@ -284,20 +312,37 @@ class Parser:
         else:
             notes = notes[0]
 
-        elected = not disqualified and (unopposed or row - num_disqualified < constituency.seats)
+        if num_elected is not None:
+            elected = not disqualified and (unopposed or row - num_disqualified < num_elected)
+        else:
+            elected = not disqualified and (unopposed or row - num_disqualified < constituency.seats)
 
-        CandidateResult.objects.create(
-            constituency = constituency,
-            election = election,
-            party = sub_df.loc[row,'Party'],
-            candidate = sub_df.loc[row,'Candidate'],
-            votes = votes,
-            percent = sub_df.loc[row,'Percent'],
-            unopposed = unopposed,
-            elected = elected,
-            disqualified = disqualified,
-            notes = sub_df.loc[row,'Notes']
-        )
+        try:
+            party = Party.objects.get(name=sub_df.loc[row,'Party'])
+        except:
+            party = PARTY(name=sub_df.loc[row,'Party'],colour="#DCDCDC")
+            party.save()
+        
+        try:
+            CandidateResult.objects.get(
+                constituency = constituency,
+                election = election,
+                party = party,
+                candidate = sub_df.loc[row,'Candidate']
+            )
+        except:
+            CandidateResult.objects.create(
+                constituency = constituency,
+                election = election,
+                party = party,
+                candidate = sub_df.loc[row,'Candidate'],
+                votes = votes,
+                percent = sub_df.loc[row,'Percent'],
+                unopposed = unopposed,
+                elected = elected,
+                disqualified = disqualified,
+                notes = sub_df.loc[row,'Notes']
+            )
 
         return num_disqualified
 
@@ -320,13 +365,16 @@ class Parser:
         else:
             notes = notes[0]
 
-        result = ConstituencyResult.objects.create(
+        try:
+            ConstituencyResult.objects.get(election=election, constituency=constituency)
+        except:
+            ConstituencyResult.objects.create(
             election=election,
             constituency=constituency,
             turnout_votes=turnout_votes,
             turnout_percent=turnout_percent,
             notes=notes
-        )
+            )
     
     def create_byelection(self,year, constituency, sub_df):
 
@@ -357,27 +405,36 @@ class Parser:
             notes = notes[0]
 
         current_mps = constituency.get_current_mps(date)
+        num_elected = 1
         if ']' in notes:
             oldMP, notes = notes.replace('[','').split(']')
-            if oldMP not in [mp.split(' ')[-1] for mp in current_mps]:
+            if oldMP == 'Both':
+                oldMP = ', '.join(current_mps)
+                num_elected = 2
+            elif oldMP not in [mp.split(' ')[-1] for mp in current_mps]:
                 raise ValueError(f'Predecessor MP {oldMP} listed in notes for {constituency_name} {year} not found among current MPs: {current_mps}')
+            else:
+                oldMP = current_mps[[mp.split(' ')[-1] for mp in current_mps].index(oldMP)]
         else:
             oldMP = None
             if constituency.seats > 1:
                 raise ValueError(f'No predecessor MP found in notes for {constituency_name} {year}, but constituency has more than 1 seat')
         
-        by_election = Election.objects.create(
-            type='BE',
-            year=year,
-            date=date,
-            turnout_votes=turnout_votes,
-            turnout_percent=turnout_percent,
-            notes=notes,
-            constituency=constituency,
-            oldMP=oldMP
-        )
+        try:
+            by_election = Election.objects.get(type='BE', date=date, constituency=constituency)
+        except:
+            by_election = Election.objects.create(
+                type='BE',
+                year=year,
+                date=date,
+                turnout_votes=turnout_votes,
+                turnout_percent=turnout_percent,
+                notes=notes,
+                constituency=constituency,
+                oldMP=oldMP
+            )
 
-        return by_election
+        return by_election, num_elected
 
         
 
