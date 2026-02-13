@@ -15,26 +15,12 @@ from django.templatetags.static import static
 from django.conf import settings
 import os
 
+########## GLOBAL VARIABLES ##########
+
 # Construct path to app's static directory
 app_static_dir = os.path.join(os.path.dirname(__file__), 'static')
 
-########## GLOBAL VARIABLES ##########
-
-allElectionList = [
-'2024','2019','2017','2015','2010','2005','2001','1997','1992','1987','1983','1979','1974 Oct','1974 Feb',
-'1970','1966','1964','1959','1955','1951','1950','1945','1935','1931','1929','1924','1923','1922',
-'1918','1910 Dec','1910 Jan','1906','1900','1895','1892','1886','1885','1880','1874','1868','1865',
-'1859','1857','1852','1847','1841','1837','1835','1832','1831','1830',
-]
-fullElectionList = [
-'2024','2019','2017','2015','2010','2005','2001','1997','1992','1987','1983','1979','1974 Oct','1974 Feb',
-'1970','1966','1964','1959','1955','1951','1950','1945','1935','1931','1929','1924','1923','1922',
-'1918','1910 Dec','1910 Jan','1906','1900','1895','1892','1886','1885',
-]
-displayElectionList = [
-'2024','2019','2017','2015','2010','2005','2001','1997','1992','1987','1983','1979','1974 Oct','1974 Feb',
-'1970','1966','1964','1959','1955','1951','1950',
-]
+# Template for the text to be displayed when a constituency is clicked on the map
 bokeh_display_text = """div.text = "<style>table {font-family: arial, sans-serif;border-collapse: collapse;width: 60%;}" +
         "td {border: 0.5px solid #000000;text-align: left;padding: 1px 5px 1px 5px;}" +
         "th {border: 0.5px solid #000000;background-color: #E7E6E7;text-align: center;padding: 1px 5px 1px 5px;}" +
@@ -60,6 +46,7 @@ bokeh_display_text = """div.text = "<style>table {font-family: arial, sans-serif
           div.text += "</table><br>"
           div.text += "<p><a href='/uk/constituencies/" + cds.data['name'][cb_obj.indices] + "'>Constituency Page</a>"
        """
+
 ########## AUXILLERY FUNCTIONS ##########
 
 def get_colours(consts, election, mode='party'):
