@@ -11,7 +11,7 @@ class PartyAdmin(admin.ModelAdmin):
     list_display = ('name','parent')
 
 class ConstituencyAdmin(admin.ModelAdmin):
-    list_display = ('name','start_date','seats','modern_county','historic_county')
+    list_display = ('name','start_date','seats')
     list_filter = ['name']
 
 class ElectionAdmin(admin.ModelAdmin):

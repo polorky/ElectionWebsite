@@ -32,8 +32,8 @@ class Constituency(models.Model):
     '''
     name = models.CharField(max_length=255)
     alt_name = models.CharField(max_length=255,blank=True,null=True)
-    modern_county = models.ForeignKey(County, on_delete=models.CASCADE, related_name='modern_county')
-    historic_county = models.ForeignKey(County, on_delete=models.CASCADE, related_name='historic_county')
+    modern_county = models.ManyToManyField(County, related_name='modern_county')
+    historic_county = models.ManyToManyField(County, related_name='historic_county')
     start_date = models.TextField(default=None,null=True,blank=True)
     end_date = models.TextField(default=None,null=True,blank=True)
     seats = models.IntegerField(default=1)
