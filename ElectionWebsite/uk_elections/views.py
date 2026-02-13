@@ -176,13 +176,13 @@ def electionView(request, election, map_type='None'):
 
     module_dir = os.path.dirname(__file__)   #get current directory
 
-    all_elections = Election.objects.filter(type='GE').order_by('-date')
+    all_elections = list(Election.objects.filter(type='GE').order_by('-date'))
 
     if election == 'home':
         
         return render(request, "uk_elections/elections.html", {'pageview':'home', 'elections': all_elections})
 
-    context = {pageview:'results'}
+    context = {'pageview':'results'}
 
     electionObj = Election.objects.get(year=election)
     context['electionObj'] = electionObj
@@ -191,7 +191,7 @@ def electionView(request, election, map_type='None'):
     context['next_election'] = all_elections[index+1] if index > 0 else None
     context['last_election'] = all_elections[index-1] if index < len(all_elections) - 1 else None
 
-    parties = PARTY.objects.all()
+    parties = Party.objects.all()
     colours = {p.name:p.colour for p in parties}
     results = CandidateResult.objects.filter(election=electionObj).filter(elected=True).order_by('constituency__name')
 

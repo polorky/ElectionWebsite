@@ -26,14 +26,50 @@ class Party(models.Model):
     def __str__(self):
         return self.name
 
-class Coalition(models.Model):
+class Constituency(models.Model):
+    '''
+    Class for UK constituencies
+    '''
+    name = models.CharField(max_length=255)
+    alt_name = models.CharField(max_length=255,blank=True,null=True)
+    modern_county = models.ForeignKey(County, on_delete=models.CASCADE, related_name='modern_county')
+    historic_county = models.ForeignKey(County, on_delete=models.CASCADE, related_name='historic_county')
+    start_date = models.TextField(default=None,null=True,blank=True)
+    end_date = models.TextField(default=None,null=True,blank=True)
+    seats = models.IntegerField(default=1)
+    alternating = models.TextField(default=None,null=True,blank=True)
 
-    name = models.CharField(max_length=50)
-    elections = models.ManyToManyField(Election,blank=True)
-    parties = models.ManyToManyField(Party,blank=True)
+    # Self-referential relationship for succession
+    predecessors = models.ManyToManyField(
+        'self',
+        symmetrical=False,
+        related_name='successors',
+        blank=True,
+        help_text="Constituencies this one was created from or replaced"
+    )
 
     def __str__(self):
-        return self.name
+        return f'{self.name} ({self.start_date} - {self.end_date} - Seats: {self.seats})'
+
+    def get_current_mps(self, date):
+
+        nearest_lower_date = ''
+        nearest_election = ''
+
+        for election in Election.objects.all():
+            if election.date.replace(tzinfo=None) > date:
+                continue
+            elif not nearest_lower_date:
+                nearest_election = election
+                nearest_lower_date = election.date.replace(tzinfo=None)
+            elif election.date.replace(tzinfo=None) > nearest_lower_date:
+                nearest_election = election
+                nearest_lower_date = election.date.replace(tzinfo=None)
+
+        results = CandidateResult.objects.filter(constituency=self).filter(election=nearest_election).filter(elected=True)
+        mps = [result.candidate for result in results]
+
+        return mps         
 
 class Election(models.Model):
     '''
@@ -68,63 +104,22 @@ class Election(models.Model):
     def __str__(self):
         return f"{'General Election' if self.type == 'GE' else 'By-Election'} - {self.year if self.type == 'GE' else f'{self.constituency.name} {self.date}'}"
 
-class Constituency(models.Model):
-    '''
-    Class for UK constituencies
-    '''
-    name = models.CharField(max_length=255)
-    alt_name = models.CharField(max_length=255,blank=True,null=True)
-    originally_created = models.DateTimeField()
-    modern_county = models.ForeignKey(COUNTY, on_delete=models.CASCADE, related_name='modern_county')
-    historic_county = models.ForeignKey(COUNTY, on_delete=models.CASCADE, related_name='historic_county')
-    election_list = models.TextField()
-    created = models.TextField(default=None,null=True,blank=True)
-    abolished = models.TextField(default=None,null=True,blank=True)
-    seats = models.IntegerField(default=1)
-    alternating = models.TextField(default=None,null=True,blank=True)
+class Coalition(models.Model):
 
-    # Self-referential relationship for succession
-    predecessors = models.ManyToManyField(
-        'self',
-        symmetrical=False,
-        related_name='successors',
-        blank=True,
-        help_text="Constituencies this one was created from or replaced"
-    )
+    name = models.CharField(max_length=50)
+    elections = models.ManyToManyField(Election,blank=True)
+    parties = models.ManyToManyField(Party,blank=True)
 
     def __str__(self):
         return self.name
-
-    def get_current_mps(self, date):
-
-        nearest_lower_date = ''
-        nearest_election = ''
-
-        for election in Election.objects.all():
-            if election.date.replace(tzinfo=None) > date:
-                continue
-            elif not nearest_lower_date:
-                nearest_election = election
-                nearest_lower_date = election.date.replace(tzinfo=None)
-            elif election.date.replace(tzinfo=None) > nearest_lower_date:
-                nearest_election = election
-                nearest_lower_date = election.date.replace(tzinfo=None)
-
-        results = CandidateResult.objects.filter(constituency=self).filter(election=nearest_election).filter(elected=True)
-        mps = [result.candidate for result in results]
-
-        return mps
-    
-    def __str__(self):
-        return f'{self.name} ({self.start_date} - {self.end_date} - Seats: {self.seats})' 
 
 class ConstituencyResult(models.Model):
     '''
     Class to record constituency-level results for an election
     '''
 
-    constituency = models.ForeignKey(CONSTITUENCY, on_delete=models.CASCADE)
-    election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)
+    constituency = models.ForeignKey(Constituency, on_delete=models.CASCADE)
+    election = models.ForeignKey(Election, on_delete=models.CASCADE)
     turnout_votes = models.IntegerField(blank=True,null=True)
     turnout_percent = models.FloatField(blank=True,null=True)    
     notes = models.TextField(blank=True,null=True)
@@ -137,9 +132,9 @@ class CandidateResult(models.Model):
     Class to record results for each candidate in an election
     '''
     
-    constituency = models.ForeignKey(CONSTITUENCY, on_delete=models.CASCADE)
-    election = models.ForeignKey(ELECTION, on_delete=models.CASCADE)    
-    party = models.ForeignKey(PARTY, on_delete=models.CASCADE)
+    constituency = models.ForeignKey(Constituency, on_delete=models.CASCADE)
+    election = models.ForeignKey(Election, on_delete=models.CASCADE)    
+    party = models.ForeignKey(Party, on_delete=models.CASCADE)
     candidate = models.CharField(max_length=100)
     votes = models.IntegerField(blank=True,null=True)
     percent = models.FloatField(blank=True,null=True)

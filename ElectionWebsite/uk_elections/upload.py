@@ -1,17 +1,16 @@
-import datetime
+from datetime import datetime
 import pandas as pd
 
-from ElectionWebsite.uk_elections.views import create_const_seats_db
 from .models import *
 from.utility_functions import get_date_from_election_year_string
 
 parsing_list = (
-                ('Regions', 'region'),
-                ('Counties', 'county'),
-                ('Parties', 'party'),
-                ('Elections', 'general_election'),
+                #('Regions', 'region'),
+                #('Counties', 'county'),
+                #('Parties', 'party'),
+                #('Elections', 'general_election'),
                 ('Const_sum', 'constituency'),
-                ('Const_full', 'result')
+                #('Const_full', 'result'),
             )
 
 class Uploader:
@@ -19,12 +18,12 @@ class Uploader:
     def __init__(self, file):
         self.status = 'Upload successful'
         for t in parsing_list:
-            df = pd.read_csv(file, sheet_name=t[0])
+            df = pd.read_excel(file, sheet_name=t[0])
             p = Parser(t[1], df)
-            try:
-                p.parse()
-            except Exception as e:
-                self.status = f'Error parsing {t[0]}: {e}'
+            #try:
+            p.parse()
+            #except Exception as e:
+                #self.status = f'Error parsing {t[0]}: {e}'
 
 class Parser:
 
@@ -105,7 +104,7 @@ class Parser:
 
         df = self.df
         df.fillna('',axis=1,inplace=True)
-        string_cols = ['Created','Abolished','Re-created','Changed','Changed 2','4 MPs','3 MPs','2 MPs']
+        string_cols = ['Created','Abolished','Re-created','4 MPs','3 MPs','2 MPs']
 
         for col in string_cols:
             df[col] = df[col].apply(str)
@@ -134,8 +133,6 @@ class Parser:
                             alternating=alternating,
                             start_date=creation_details[0],
                             end_date=date,
-                            predecessor=creation_details[2],
-                            successor=event[1],
                             seats=creation_details[2]
                         )
                 elif event[0] == 'recreated':
@@ -186,7 +183,7 @@ class Parser:
                         else:
                             raise ValueError(f'Successor constituency {successor} listed for {c.name} abolished in {date} not found')
                     # keep the original successor string for backward compatibility
-                    c.successor.set(succ_objs)
+                    c.successors.set(succ_objs)
                     c.save()
                 elif event[0] == 'recreated':
                     c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
@@ -202,7 +199,7 @@ class Parser:
                             prec_objs.append(obj)
                         else:
                             raise ValueError(f'Predecessor constituency {predecessor} listed for {c.name} recreated in {date} not found')
-                    c.predecessor.set(prec_objs)
+                    c.predecessors.set(prec_objs)
                     c.save()
                 elif event[0] == 'seat_change':
                     new_c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
@@ -243,15 +240,16 @@ class Parser:
             events[date] = ['recreated',preds[i],1]
         
         # Deal with number of seats
-        four_mps = [get_date_from_election_year_string(x) for x in df.loc[row,'4 MPs'].split('|') if x != '']
-        three_mps = [get_date_from_election_year_string(x) for x in df.loc[row,'3 MPs'].split('|') if x != '']
-        two_mps = [get_date_from_election_year_string(x) for x in df.loc[row,'2 MPs'].split('|') if x != '']
-        events = check_seat_key(events, 1, four_mps[1])
-        events = check_seat_key(events, 1, three_mps[1])
-        events = check_seat_key(events, 1, two_mps[1])
-        events = check_seat_key(events, 4, four_mps[0])
-        events = check_seat_key(events, 3, three_mps[0])
-        events = check_seat_key(events, 2, two_mps[0])        
+        mp_configs = [('4 MPs', 4), ('3 MPs', 3), ('2 MPs', 2)]
+        
+        for col_name, seat_count in mp_configs:
+            mp_dates = [get_date_from_election_year_string(x) for x in df.loc[row, col_name].split('|') if x != '']
+            if mp_dates:
+                events = check_seat_key(events, 1, mp_dates[1])
+        for col_name, seat_count in mp_configs:
+            mp_dates = [get_date_from_election_year_string(x) for x in df.loc[row, col_name].split('|') if x != '']
+            if mp_dates:
+                events = check_seat_key(events, seat_count, mp_dates[0])      
 
         # Sort events chronologically
         dates_sorted = sorted(events.keys())
@@ -260,6 +258,7 @@ class Parser:
 
     def parse_result(self):
 
+        df = self.df
         df.fillna('',axis=1,inplace=True)
 
         filter_df = df[['Year', 'Constituency']].drop_duplicates()
