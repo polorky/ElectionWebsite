@@ -10,7 +10,7 @@ class Region(models.Model):
 class County(models.Model):
 
     name = models.CharField(max_length=30)
-    region = models.ForeignKey(REGION,on_delete=models.CASCADE)
+    region = models.ForeignKey(Region,on_delete=models.CASCADE)
     colour = models.CharField(max_length=7,blank=True,null=True)
 
     def __str__(self):
@@ -29,8 +29,8 @@ class Party(models.Model):
 class Coalition(models.Model):
 
     name = models.CharField(max_length=50)
-    elections = models.ManyToManyField(ELECTION,blank=True)
-    parties = models.ManyToManyField(PARTY,blank=True)
+    elections = models.ManyToManyField(Election,blank=True)
+    parties = models.ManyToManyField(Party,blank=True)
 
     def __str__(self):
         return self.name
@@ -66,10 +66,7 @@ class Election(models.Model):
     oldMP = models.CharField(max_length=100,blank=True,null=True)
 
     def __str__(self):
-        if self.type == 'GE':
-            return 'General Election - ' + self.year
-        else:
-            return 'By-Election - ' + self.constituency.name + ' ' + str(self.date)
+        return f"{'General Election' if self.type == 'GE' else 'By-Election'} - {self.year if self.type == 'GE' else f'{self.constituency.name} {self.date}'}"
 
 class Constituency(models.Model):
     '''
@@ -117,6 +114,9 @@ class Constituency(models.Model):
         mps = [result.candidate for result in results]
 
         return mps
+    
+    def __str__(self):
+        return f'{self.name} ({self.start_date} - {self.end_date} - Seats: {self.seats})' 
 
 class ConstituencyResult(models.Model):
     '''
@@ -130,10 +130,7 @@ class ConstituencyResult(models.Model):
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):
-        if self.election.type == 'GE':
-            return f'General Election Result {self.constituency.name} - {self.election.year}'
-        else:
-            return f'By-Election Result {self.constituency.name} - {self.election.date}'
+        return f'{self.election.type} Result {self.election.year if self.election.type == "GE" else self.election.date} - {self.constituency.name}'
 
 class CandidateResult(models.Model):
     '''
@@ -152,4 +149,4 @@ class CandidateResult(models.Model):
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):
-        return f'By-Election Result {self.byelection.constituency.name} - {self.byelection.date}'
+        return f'{self.election.type} Result {self.election.year if self.election.type == "GE" else self.election.date} - {self.constituency.name} - {self.candidate} ({self.party.name})'

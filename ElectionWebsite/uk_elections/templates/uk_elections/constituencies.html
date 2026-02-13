@@ -16,38 +16,33 @@
 
   <ul>
     {% for const in consts %}
-      <li><a href="/uk/constituencies/{{ const.name }}">{{ const.name }}</a></li>
+      <li><a href="/uk/constituencies/{{ const }}">{{ const }}</a></li>
     {% endfor %}
   </ul>
 
 {% elif pageview == 'noconst' %}
 
-  <h2>Constituency not yet created</h2>
-  <p>This constituency has not yet been added to the database, sorry!</p>
+  <h2>Constituency Does Not Exist</h2>
+  <p>This constituency does not exist or has not yet been added to the database, sorry!</p>
 
 {% else %}
 
-  <h2>{{ const.name }}</h2>
-  <p><b>Modern County:</b> {{ const.modern_county }}</p>
-  <p><b>Historic County:</b> {{ const.historic_county }}</p>
-  {% if multi_seats.four %}
-    <p><b>Four MPs:</b> {{ multi_seats.four.0 }} - {{ multi_seats.four.1 }}</p>
-  {% endif %}
-  {% if multi_seats.three %}
-    <p><b>Three MPs:</b> {{ multi_seats.three.0 }} - {{ multi_seats.three.1 }}</p>
-  {% endif %}
-  {% if multi_seats.two %}
-    <p><b>Two MPs:</b> {{ multi_seats.two.0 }} - {{ multi_seats.two.1 }}</p>
-  {% endif %}
+  <h2>{{ consts.0.name }}</h2>
+  <p><b>Modern County:</b> {{ consts.0.modern_county }}</p>
+  <p><b>Historic County:</b> {{ consts.0.historic_county }}</p>
 
   <h3>Period(s) of Existence</h3>
-  {% for inst in const_inst %}
-    <b>{{ inst.start }} - {{ inst.end }}</b>
-    {% if inst.preds.0 %}
-      <p>Predecessors: {% for p in inst.preds %}<a href="{{ p }}">{{ p }}</a> {% endfor %}</p>
+  {% for const in consts %}
+    {% if const.end_date %}
+      <b>{{ const.start_date }} - {{ const.end_date }} - Seats: {{ const.seats }}</b>
+    {% else %}
+      <b>{{ const.start_date }} - Present - Seats: {{ const.seats }}</b>
     {% endif %}
-    {% if inst.succs.0 %}
-      <p>Successors: {% for s in inst.succs %}<a href="{{ s }}">{{ s }}</a> {% endfor %}</p>
+    {% if const.predecessors %}
+      <p>Predecessors: {% for p in const.predecessors %}<a href="{{ p }}">{{ p }}</a> {% endfor %}</p>
+    {% endif %}
+    {% if const.successors %}
+      <p>Successors: {% for s in const.successors %}<a href="{{ s }}">{{ s }}</a> {% endfor %}</p>
     {% endif %}
   {% endfor %}
 
@@ -60,13 +55,12 @@
       <p><b>Date Held:</b> {{ result.0.0.date|date:'jS F Y' }}</p>
       <p><b>Outgoing MP:</b> {{ result.0.0.byelection__oldMP }}</p>
       <p style="width:50%;"><b>Notes:</b> {{ result.0.0.byelection__notes }}</p>
-
     {% endif %}
     {% if result.0.0.unopposed %}
       <table id="table">
         <tr><th colspan="2">Party</th><th>Candidate</th><th>Elected</th></tr>
         {% for row in result.0 %}
-          <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td style="color:green;background-color:LightGreen;"><b>Unopposed</b></td></tr>
+          <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td style="color:green;background-color:lightgreen;"><b>Unopposed</b></td></tr>
         {% endfor %}
       </table>
     {% else %}
@@ -74,7 +68,7 @@
         <tr><th colspan="2">Party</th><th>Candidate</th><th>Votes</th><th>Percent</th><th>Elected</th></tr>
         {% for row in result.0 %}
           {% if row.elected %}
-            <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td>{{ row.votes }}</td><td>{{ row.percent }}</td><td style="color:green;background-color:LightGreen;"><b>&#10003;</b></td></tr>
+            <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td>{{ row.votes }}</td><td>{{ row.percent }}</td><td style="color:green;background-color:lightgreen;"><b>&#10003;</b></td></tr>
           {% else %}
             <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td>{{ row.votes }}</td><td>{{ row.percent }}</td><td style="color:red;background-color:pink;"><b>X</b></td></tr>
           {% endif %}
