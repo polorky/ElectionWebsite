@@ -34,8 +34,8 @@ class Constituency(models.Model):
     alt_name = models.CharField(max_length=255,blank=True,null=True)
     modern_county = models.ManyToManyField(County, related_name='modern_county')
     historic_county = models.ManyToManyField(County, related_name='historic_county')
-    start_date = models.TextField(default=None,null=True,blank=True)
-    end_date = models.TextField(default=None,null=True,blank=True)
+    start_date = models.DateTimeField(default=None,null=True,blank=True)
+    end_date = models.DateTimeField(default=None,null=True,blank=True)
     seats = models.IntegerField(default=1)
     alternating = models.TextField(default=None,null=True,blank=True)
 
@@ -76,6 +76,7 @@ class Election(models.Model):
     Class for general elections
     '''
     type = models.CharField(max_length=20, choices=(('GE', 'General Election'), ('BE', 'By-Election')))
+    year = models.CharField(max_length=4,blank=True,null=True)
     date = models.DateTimeField()
     endDate = models.DateTimeField(blank=True,null=True)
     turnout_votes = models.FloatField(blank=True,null=True)
@@ -83,7 +84,6 @@ class Election(models.Model):
     notes = models.TextField(blank=True,null=True)
 
     # For general elections only
-    year = models.CharField(max_length=4,blank=True,null=True)
     largest_party = models.TextField(blank=True,null=True)
     prime_minister = models.TextField(blank=True,null=True)
     second_party = models.TextField(blank=True,null=True)
