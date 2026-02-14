@@ -110,8 +110,10 @@ class Parser:
             df[col] = df[col].apply(str)
 
         for row in df.index:
-            modern_county = df.loc[row,'Modern County'],
-            historic_county = df.loc[row,'Historic County']
+            modern_counties = df.loc[row,'Modern County'].split('/')
+            historic_counties = df.loc[row,'Historic County'].split('/')
+            modern_counties = [County.objects.get(name=c) for c in modern_counties]
+            historic_counties = [County.objects.get(name=c) for c in historic_counties]
             alt_name = df.loc[row,'Alternative Name']
             alternating = df.loc[row,'Alt']
 
@@ -127,8 +129,8 @@ class Parser:
                     except:
                         c = Constituency(
                             name=df.loc[row,'Name'],
-                            modern_county=County.objects.get(name=modern_county),
-                            historic_county=County.objects.get(name=historic_county),
+                            modern_county=modern_counties,
+                            historic_county=historic_counties,
                             alt_name=alt_name,
                             alternating=alternating,
                             start_date=creation_details[0],
