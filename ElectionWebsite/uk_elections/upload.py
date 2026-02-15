@@ -1,5 +1,6 @@
 from datetime import datetime
 import pandas as pd
+from django.db.models import Q
 
 from .models import *
 from.utility_functions import get_date_from_election_year_string
@@ -17,11 +18,13 @@ class Uploader:
 
     def __init__(self, file):
         self.status = 'Upload successful'
+        self.errors = []
         for t in parsing_list:
             df = pd.read_excel(file, sheet_name=t[0])
             p = Parser(t[1], df)
             #try:
             p.parse()
+            self.errors = p.errors
             #except Exception as e:
                 #self.status = f'Error parsing {t[0]}: {e}'
 
@@ -30,6 +33,7 @@ class Parser:
     def __init__(self, datatype, df):
         self.datatype = datatype
         self.df = df
+        self.errors = []
 
     def parse(self):
         return getattr(self, f'parse_{self.datatype}')()
@@ -174,51 +178,78 @@ class Parser:
                 c.save()
         
         for row in df.index:
-            events, dates_sorted = self.get_const_instances(df,row)
-            for i, date in enumerate(dates_sorted):
-                event = events[date]
-                if event[0] == 'abolished':
-                    c = Constituency.objects.get(name=df.loc[row,'Name'],end_date=date)
-                    succ_names = [s.strip() for s in event[1].split('/') if s.strip()]
-                    succ_objs = []
-                    if succ_names:
-                        for successor in succ_names:
-                            # try exact match for the given date first
-                            obj = Constituency.objects.filter(name=successor, start_date=date).first()
-                            # if no exact match, get the most recent start_date before the date
-                            if not obj:
-                                obj = Constituency.objects.filter(name=successor, start_date__lt=date).order_by('-start_date').first()
-                            if obj:
-                                succ_objs.append(obj)
-                            else:
-                                raise ValueError(f'Successor constituency {successor} listed for {c.name} abolished in {date} not found')
-                        # keep the original successor string for backward compatibility
-                        c.successors.set(succ_objs)
-                        c.save()
-                elif event[0] == 'recreated':
-                    c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
-                    prec_names = [p.strip() for p in event[1].split('/') if p.strip()]
-                    prec_objs = []
-                    if prec_names:
-                        for predecessor in prec_names:
-                            # try exact match for the given date first
-                            obj = Constituency.objects.filter(name=predecessor, start_date=date).first()
-                            # if no exact match, get the most recent start_date before the date
-                            if not obj:
-                                obj = Constituency.objects.filter(name=predecessor, start_date__lt=date).order_by('-start_date').first()
-                            if obj:
-                                prec_objs.append(obj)
-                            else:
-                                raise ValueError(f'Predecessor constituency {predecessor} listed for {c.name} recreated in {date} not found')
-                        c.predecessors.set(prec_objs)
-                        c.save()
-                elif event[0] == 'seat_change':
-                    new_c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
-                    old_c = Constituency.objects.get(name=df.loc[row,'Name'],end_date=date)
-                    new_c.predecessors.add(old_c)
-                    new_c.save()
-                    old_c.successors.add(new_c)
-                    old_c.save()
+            try:
+                events, dates_sorted = self.get_const_instances(df,row)
+                for i, date in enumerate(dates_sorted):
+                    event = events[date]
+                    if event[0] == 'abolished':
+                        c = Constituency.objects.get(name=df.loc[row,'Name'],end_date=date)
+                        succ_names = [s.strip() for s in event[1].split('/') if s.strip()]
+                        if '[Irish Free State]' in succ_names:
+                            succ_names.remove('[Irish Free State]')
+                        succ_objs = []
+                        if succ_names:
+                            for successor in succ_names:
+                                # try exact match for the given date first
+                                obj = Constituency.objects.filter(name=successor, start_date=date).first()
+                                # if no exact match, get the most recent start_date before the date
+                                # Also check that it was active (end_date is after start_date or null)
+                                if not obj:
+                                    obj = Constituency.objects.filter(
+                                        name=successor, 
+                                        start_date__lt=date,
+                                        end_date__isnull=True
+                                    ).order_by('-start_date').first()
+                                if not obj:
+                                    obj = Constituency.objects.filter(
+                                        name=successor, 
+                                        start_date__lt=date,
+                                        end_date__gte=date
+                                    ).order_by('-start_date').first()
+                                if obj:
+                                    succ_objs.append(obj)
+                                else:
+                                    raise ValueError(f'Successor constituency {successor} listed for {c.name} abolished in {date} not found')
+                            # keep the original successor string for backward compatibility
+                            c.successors.set(succ_objs)
+                            c.save()
+                    elif event[0] == 'recreated':
+                        c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
+                        prec_names = [p.strip() for p in event[1].split('/') if p.strip()]
+                        prec_objs = []
+                        if prec_names:
+                            for predecessor in prec_names:
+                                # try exact match for the given date first
+                                obj = Constituency.objects.filter(name=predecessor, start_date=date).first()
+                                # if no exact match, get the most recent start_date before the date
+                                # Also check that it was active (end_date is after start_date or null)
+                                if not obj:
+                                    obj = Constituency.objects.filter(
+                                        name=predecessor, 
+                                        start_date__lt=date,
+                                        end_date__isnull=True
+                                    ).order_by('-start_date').first()
+                                if not obj:
+                                    obj = Constituency.objects.filter(
+                                        name=predecessor, 
+                                        start_date__lt=date,
+                                        end_date__gte=date
+                                    ).order_by('-start_date').first()
+                                if obj:
+                                    prec_objs.append(obj)
+                                else:
+                                    raise ValueError(f'Predecessor constituency {predecessor} listed for {c.name} recreated in {date} not found')
+                            c.predecessors.set(prec_objs)
+                            c.save()
+                    elif event[0] == 'seat_change':
+                        new_c = Constituency.objects.get(name=df.loc[row,'Name'],start_date=date)
+                        old_c = Constituency.objects.get(name=df.loc[row,'Name'],end_date=date)
+                        new_c.predecessors.add(old_c)
+                        new_c.save()
+                        old_c.successors.add(new_c)
+                        old_c.save()
+            except Exception as e:
+                self.errors.append(f'Error processing constituency {df.loc[row,"Name"]} row {row}: {e}')
 
     def get_const_instances(self, df, row):
         '''

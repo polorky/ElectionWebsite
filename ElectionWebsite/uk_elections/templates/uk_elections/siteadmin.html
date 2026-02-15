@@ -18,6 +18,11 @@
   <button type="submit">Upload</button>
 </form>
 
-<p>Status: {{ status }}</p>
+<p>Errors:</p>
+<ul>
+{% for error in status %}
+  <li>{{ error }}</li>
+{% endfor %}
+</ul>
 
 {% endblock content %}

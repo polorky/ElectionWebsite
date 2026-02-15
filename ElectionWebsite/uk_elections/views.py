@@ -417,6 +417,6 @@ def siteadmin(request):
 
         myfile = request.FILES['myfile']
         uploader = Uploader(myfile)
-        status = uploader.status
+        status = uploader.errors
 
     return render(request, "uk_elections/siteadmin.html", {'status':status})
