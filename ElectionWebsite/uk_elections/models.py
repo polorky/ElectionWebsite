@@ -37,7 +37,7 @@ class Constituency(models.Model):
     start_date = models.DateTimeField(default=None,null=True,blank=True)
     end_date = models.DateTimeField(default=None,null=True,blank=True)
     seats = models.IntegerField(default=1)
-    alternating = models.TextField(default=None,null=True,blank=True)
+    alternating = models.CharField(max_length=4,default=None,null=True,blank=True)
 
     # Self-referential relationship for succession
     predecessors = models.ManyToManyField(
