@@ -34,12 +34,22 @@ class ConstituencyAdminForm(forms.ModelForm):
             self.fields['predecessors'].queryset = Constituency.objects.filter(end_date__isnull=False)
 
 class ConstituencyAdmin(admin.ModelAdmin):
-    list_display = ('name','start_date','seats','get_predecessors_display')
+    list_display = ('name','formatted_start_date','formatted_end_date','seats','get_predecessors_display')
     list_filter = ['name']
     #form = ConstituencyAdminForm
     #filter_horizontal = ['predecessors']
     
     readonly_fields = ['get_predecessors','get_successors']
+
+    def formatted_start_date(self, obj):
+        return obj.start_date.strftime('%Y/%m/%d') if obj.start_date else "None"
+    formatted_start_date.short_description = 'Start Date'
+    formatted_start_date.admin_order_field = 'start_date'
+
+    def formatted_end_date(self, obj):
+        return obj.end_date.strftime('%Y/%m/%d') if obj.end_date else "Present"
+    formatted_end_date.short_description = 'End Date'
+    formatted_end_date.admin_order_field = 'end_date' 
 
     def get_predecessors_display(self, obj):
         """Show predecessors in list view"""
