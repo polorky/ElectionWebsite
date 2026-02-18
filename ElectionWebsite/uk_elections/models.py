@@ -32,8 +32,8 @@ class Constituency(models.Model):
     '''
     name = models.CharField(max_length=255)
     alt_name = models.CharField(max_length=255,blank=True,null=True)
-    modern_county = models.ManyToManyField(County, related_name='modern_county')
-    historic_county = models.ManyToManyField(County, related_name='historic_county')
+    modern_county = models.ManyToManyField(County, related_name='modern_counties')
+    historic_county = models.ManyToManyField(County, related_name='historic_counties')
     start_date = models.DateTimeField(default=None,null=True,blank=True)
     end_date = models.DateTimeField(default=None,null=True,blank=True)
     seats = models.IntegerField(default=1)
@@ -49,7 +49,7 @@ class Constituency(models.Model):
     )
 
     def __str__(self):
-        return f'{self.name} ({self.start_date} - {self.end_date} - Seats: {self.seats})'
+        return f'{self.name} ({self.start_date.strftime("%Y/%m/%d")} - {self.end_date.strftime("%Y/%m/%d") if self.end_date else "Present"} - Seats: {self.seats})'
 
     def get_current_mps(self, date):
 
