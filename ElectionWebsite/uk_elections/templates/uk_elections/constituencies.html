@@ -28,21 +28,21 @@
 {% else %}
 
   <h2>{{ consts.0.name }}</h2>
-  <p><b>Modern County:</b> {{ consts.0.modern_county }}</p>
-  <p><b>Historic County:</b> {{ consts.0.historic_county }}</p>
+  <p><b>Modern County:</b> {% for county in consts.0.modern_county.all %} {{ county.name }}{% if not forloop.last %}, {% endif %} {% endfor %}</p>
+  <p><b>Historic County:</b> {% for county in consts.0.historic_county.all %} {{ county.name }}{% if not forloop.last %}, {% endif %} {% endfor %}</p>
 
   <h3>Period(s) of Existence</h3>
   {% for const in consts %}
     {% if const.end_date %}
-      <b>{{ const.start_date }} - {{ const.end_date }} - Seats: {{ const.seats }}</b>
+      <b>{{ const.start_date|date:"Y" }} - {{ const.end_date|date:"Y" }} - Seats: {{ const.seats }}</b>
     {% else %}
-      <b>{{ const.start_date }} - Present - Seats: {{ const.seats }}</b>
+      <b>{{ const.start_date|date:"Y" }} - Present - Seats: {{ const.seats }}</b>
     {% endif %}
     {% if const.predecessors %}
-      <p>Predecessors: {% for p in const.predecessors %}<a href="{{ p }}">{{ p }}</a> {% endfor %}</p>
+      <p>Predecessors: {% for p in const.predecessors.all %}<a href="{{ p.name }}">{{ p.name }}</a> {% endfor %}</p>
     {% endif %}
     {% if const.successors %}
-      <p>Successors: {% for s in const.successors %}<a href="{{ s }}">{{ s }}</a> {% endfor %}</p>
+      <p>Successors: {% for s in const.successors.all %}<a href="{{ s.name }}">{{ s.name }}</a> {% endfor %}</p>
     {% endif %}
   {% endfor %}
 
