@@ -404,6 +404,21 @@ def constituencyView(request, const):
 
     return render(request, "uk_elections/constituencies.html", context=context)
 
+def countyView(request, county):
+
+    if county == 'home':
+
+        counties = County.objects.all().order_by('name')
+        names = list({county.name for county in counties})
+
+        return render(request, "uk_elections/county.html", {'pageview':'home', 'counties': names})
+
+    try:
+        countyObj = County.objects.get(name=county)
+        return render(request, "uk_elections/county.html", {'pageview':'county', 'county':countyObj})
+    except:
+        return render(request, "uk_elections/county.html", {'pageview':'nocounty'})
+
 ########## FUNCTIONS AND VIEWS TO PARSE RAW DATA ##########
 
 def siteadmin(request):

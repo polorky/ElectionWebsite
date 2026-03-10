@@ -1,0 +1,35 @@
+{% extends "uk_elections/ukhome.html" %}
+
+{% block title %}Constituencies{% endblock title %}
+
+{% block submenubar %}
+  <li class="nav"><a class="nav" href="/uk">UK Home</a></li>
+  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
+  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
+  <li class="nav"><a class="nav active" href="/uk/counties/home">Counties</a></li>
+{% endblock submenubar %}
+
+{% block content %}
+
+{% if pageview == 'home' %}
+
+  <h2>UK Counties</h2>
+
+  <ul>
+    {% for county in counties %}
+      <li><a href="/uk/counties/{{ county }}">{{ county }}</a></li>
+    {% endfor %}
+  </ul>
+
+{% elif pageview == 'nocounty' %}
+
+  <h2>County Does Not Exist</h2>
+  <p>This county does not exist or has not yet been added to the database, sorry!</p>
+
+{% else %}
+
+  <h2>{{ county.name }}</h2>
+
+{% endif %}
+
+{% endblock %}

@@ -8,6 +8,7 @@ urlpatterns = [
     path('elections/<str:election>', views.electionView, name='elections'),
     path('elections/<str:election>/<str:map_type>', views.electionView, name='elections'),
     path('constituencies/<str:const>', views.constituencyView, name='consts'),
+    path('counties/<str:county>', views.countyView, name='counties'),
     path('siteadmin', views.siteadmin, name='siteadmin'),
     path('', TemplateView.as_view(template_name="uk_elections/ukhome.html"), name='home'),
 ]
