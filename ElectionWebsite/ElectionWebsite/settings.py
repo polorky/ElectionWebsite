@@ -36,6 +36,8 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'ElectionWebsite.urls'
 
+CSRF_TRUSTED_ORIGINS = ['https://electionwebsite-3sgg.onrender.com']
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
