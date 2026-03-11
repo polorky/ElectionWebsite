@@ -9,8 +9,7 @@ SECRET_KEY = config('SECRET_KEY')
 
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-#ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'electionwebsite-3sgg.onrender.com']
-ALLOWED_HOST = ['*']
+ALLOWED_HOSTS = ['electionwebsite-3sgg.onrender.com']
 
 # Application definition
 INSTALLED_APPS = [
