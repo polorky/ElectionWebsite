@@ -6,3 +6,4 @@ bokeh==3.8.2
 geojson==3.2.0
 matplotlib==3.10.8
 gunicorn
+whitenoise
