@@ -2,5 +2,5 @@ services:
   - type: web
     name: electionwebsite
     runtime: python
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
-    startCommand: gunicorn ElectionWebsite.wsgi
+    buildCommand: cd ElectionWebsite && pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate
+    startCommand: gunicorn ElectionWebsite.wsgi:application --chdir ElectionWebsite
