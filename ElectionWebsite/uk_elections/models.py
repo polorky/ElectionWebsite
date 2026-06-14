@@ -13,6 +13,9 @@ class County(models.Model):
     region = models.ForeignKey(Region,on_delete=models.CASCADE)
     colour = models.CharField(max_length=7,blank=True,null=True)
 
+    class Meta:
+        verbose_name_plural = 'Counties'
+
     def __str__(self):
         return self.name
 
@@ -22,6 +25,9 @@ class Party(models.Model):
     colour = models.CharField(max_length=7)
     cScale = models.CharField(max_length=255)
     parent = models.ForeignKey('self',on_delete=models.CASCADE,blank=True,null=True)
+
+    class Meta:
+        verbose_name_plural = 'Parties'
 
     def __str__(self):
         return self.name
@@ -47,6 +53,9 @@ class Constituency(models.Model):
         blank=True,
         help_text="Constituencies this one was created from or replaced"
     )
+
+    class Meta:
+        verbose_name_plural = 'Constituencies'
 
     def __str__(self):
         return f'{self.name} ({self.start_date.strftime("%Y/%m/%d")} - {self.end_date.strftime("%Y/%m/%d") if self.end_date else "Present"} - Seats: {self.seats})'
