@@ -70,27 +70,20 @@
     {% endif %}
   {% endif %}
 
+  {% if pageview == 'map' %}
+    {{div| safe}}
+    {{script| safe}}
+  {% elif pageview == 'hex' %}
+    {{div| safe}}
+    {{script| safe}}
+  {% endif %}
+
   <table id="table">
     <tr><th colspan="2">Party</th><th>Seats Won</th></tr>
     {% for row in overall_results %}
       <tr><td style="background-color:{{ row.2 }};">  </td><td>{{ row.0 }}</td><td>{{ row.1 }}</td></tr>
     {% endfor %}
   </table>
-  <br><br>
-
-  {% if pageview == 'map' %}
-
-    {{div| safe}}
-
-    {{script| safe}}
-
-  {% elif pageview == 'hex' %}
-
-    {{div| safe}}
-
-    {{script| safe}}
-
-  {% endif %}
 
 {% endif %}
 

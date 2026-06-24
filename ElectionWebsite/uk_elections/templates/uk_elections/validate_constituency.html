@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Validate {{ constituency.name }}{% endblock %}
+{% block content %}
+
+<p class="muted" style="margin-bottom:6px;">
+  <a href="{% url 'validate_election' election.id %}">← {{ election.year }} list</a>
+  &ensp;|&ensp;
+  <strong>{{ checked }}</strong> / {{ total }} checked, {{ unchecked }} remaining
+  {% if next_unchecked_id %}
+    &ensp;|&ensp;
+    <a href="{% url 'validate_constituency' election.id next_unchecked_id %}">Skip to next →</a>
+  {% endif %}
+</p>
+
+<h1>{{ constituency.name }} <span class="muted" style="font-weight:400; font-size:0.65em;">{{ election.year }}</span></h1>
+
+{% if vr and vr.status != 'pending' %}
+<p class="muted">
+  Previously marked
+  <strong class="{% if vr.status == 'clean' %}dot-clean{% elif vr.status == 'updated' %}dot-updated{% else %}dot-flagged{% endif %}">
+    {{ vr.get_status_display }}</strong>
+  on {{ vr.checked_at|date:"d M Y H:i" }}{% if vr.notes %} — {{ vr.notes }}{% endif %}
+</p>
+{% endif %}
+
+{% if result.api_name_used and result.api_name_used != constituency.name %}
+<p class="muted" style="font-size:0.85em;">API name used: <em>{{ result.api_name_used }}</em></p>
+{% endif %}
+
+{% if result.error %}
+
+<div class="alert alert-error">
+  <strong>Could not fetch API data:</strong> {{ result.error }}
+</div>
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="notes" value="{{ result.error }}">
+  <div class="btn-row">
+    <button type="submit" name="action" value="flag" class="btn-danger">⚑ Flag and continue</button>
+  </div>
+</form>
+
+{% else %}
+
+{% if result.turnout_diff %}
+<div class="alert alert-warning">
+  <strong>Turnout:</strong> DB {{ result.turnout_diff.0 }}% &nbsp;vs&nbsp; API {{ result.turnout_diff.1 }}%
+</div>
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+  {% for api_cand, db_result, diff in result.matched %}
+    {% if diff.name %}<input type="hidden" name="name_update_{{ db_result.id }}" value="{{ diff.name.1 }}">{% endif %}
+  {% endfor %}
+
+  <table>
+    <thead>
+      <tr>
+        <th>API name (raw)</th>
+        <th>DB name</th>
+        <th>API party</th>
+        <th>DB party</th>
+        <th style="text-align:right;">API votes</th>
+        <th style="text-align:right;">DB votes</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+
+    {% for api_cand, db_result, diff in result.matched %}
+    <tr {% if diff %}class="row-diff"{% endif %}>
+      <td>{{ api_cand.api_name }}</td>
+      <td>
+        {% if diff.name %}
+          <span class="text-strike">{{ diff.name.0 }}</span> &rarr; <strong>{{ diff.name.1 }}</strong>
+        {% else %}
+          {{ db_result.candidate }}
+        {% endif %}
+      </td>
+      <td>{{ api_cand.party }}</td>
+      <td>{{ db_result.party.name }}</td>
+      <td style="text-align:right;">{% if api_cand.votes %}{{ api_cand.votes|floatformat:"0" }}{% else %}&mdash;{% endif %}</td>
+      <td style="text-align:right;">{% if db_result.votes %}{{ db_result.votes }}{% else %}&mdash;{% endif %}</td>
+      <td>
+        {% if diff.votes %}<span class="badge-mismatch">votes differ</span>{% endif %}
+        {% if diff.name %}<span class="badge-diff">name update</span>{% endif %}
+        {% if not diff %}<span class="text-muted">—</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+
+    {% for api_cand in result.only_in_api %}
+    <tr class="row-api-only">
+      <td>{{ api_cand.api_name }}</td>
+      <td class="badge-apionly">not in DB</td>
+      <td>{{ api_cand.party }}</td>
+      <td>&mdash;</td>
+      <td style="text-align:right;">{% if api_cand.votes %}{{ api_cand.votes|floatformat:"0" }}{% else %}&mdash;{% endif %}</td>
+      <td>&mdash;</td>
+      <td><span class="badge-apionly">API only</span></td>
+    </tr>
+    {% endfor %}
+
+    {% for db_result in result.only_in_db %}
+    <tr class="row-db-only">
+      <td class="badge-apionly">not in API</td>
+      <td>{{ db_result.candidate }}</td>
+      <td>&mdash;</td>
+      <td>{{ db_result.party.name }}</td>
+      <td>&mdash;</td>
+      <td style="text-align:right;">{% if db_result.votes %}{{ db_result.votes }}{% else %}&mdash;{% endif %}</td>
+      <td><span class="badge-apionly">DB only</span></td>
+    </tr>
+    {% endfor %}
+
+    </tbody>
+  </table>
+
+  <div class="btn-row">
+    {% if has_diff %}
+    <button type="submit" name="action" value="apply" class="btn-success">✓ Apply auto-corrections &amp; continue</button>
+    {% endif %}
+    <button type="submit" name="action" value="skip" class="btn-neutral">Mark clean &amp; continue</button>
+    <button type="submit" name="action" value="flag" class="btn-danger">⚑ Flag for manual review</button>
+  </div>
+
+</form>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Parliament API{% endblock %}
+{% block content %}
+
+<h1>Parliament API Query</h1>
+
+<h2>Turnout Query</h2>
+<p>Upload an Excel file with the following columns:</p>
+<ul>
+  <li><strong>Constituency</strong> — name exactly as it appears in the Parliament API</li>
+  <li><strong>Year</strong> — four-digit year for most elections (e.g. <code>1979</code>),
+    or month + year for years with two elections:
+    <code>January 1910</code>, <code>December 1910</code>,
+    <code>February 1974</code>, <code>October 1974</code></li>
+</ul>
+<p>The file will be returned with an <strong>{{ result_column }}</strong> column appended.
+Rows that cannot be matched will contain an error message.</p>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <div class="btn-row">
+    <input type="file" name="file" accept=".xlsx,.xls" required>
+    <button type="submit">Upload and query</button>
+  </div>
+</form>
+
+{% endblock %}

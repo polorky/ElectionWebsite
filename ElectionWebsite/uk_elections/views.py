@@ -1,6 +1,11 @@
 from .models import *
 from .upload import Uploader
-from django.shortcuts import render
+from .parliament_api import TurnoutQuery
+from .validation import compare_constituency, has_any_diff, db_year_to_api_year
+from django.shortcuts import render, get_object_or_404, redirect
+from django.http import HttpResponse
+from django.utils import timezone
+import io
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -113,7 +118,7 @@ def get_colours(consts, election, mode='party'):
 
             return colours
 
-    electionObj = Election.objects.get(year=election)
+    electionObj = Election.objects.get(year=election, type='GE')
     results = CandidateResult.objects.filter(election=electionObj).filter(elected=True)
     winners = []
     for const in consts:
@@ -128,7 +133,7 @@ def get_colours(consts, election, mode='party'):
 def get_results(consts, election):
 
         all_results = []
-        electionObj = Election.objects.get(year=election)
+        electionObj = Election.objects.get(year=election, type='GE')
 
         for const in consts:
             constObj = Constituency.objects.get(name=const)
@@ -176,29 +181,39 @@ def electionView(request, election, map_type='None'):
 
     module_dir = os.path.dirname(__file__)   #get current directory
 
+    # Get all general elections
     all_elections = list(Election.objects.filter(type='GE').order_by('-date'))
 
+    # If home requested return election list
     if election == 'home':
-        
         return render(request, "uk_elections/elections.html", {'pageview':'home', 'elections': all_elections})
 
+    # Other set pageview to 'results'
     context = {'pageview':'results'}
 
-    electionObj = Election.objects.get(year=election)
-    context['electionObj'] = electionObj
+    # Get election instance requested, add to context and get index
+    electionObj = Election.objects.get(year=election, type='GE')
+    context['election'] = electionObj
     index = all_elections.index(electionObj)
-    
-    context['next_election'] = all_elections[index+1] if index > 0 else None
-    context['last_election'] = all_elections[index-1] if index < len(all_elections) - 1 else None
 
+    # all_elections is ordered -date (newest first)
+    # so index+1 = older = "Previous" and index-1 = newer = "Next"
+    context['next'] = all_elections[index - 1] if index > 0 else None
+    context['last'] = all_elections[index + 1] if index < len(all_elections) - 1 else None
+
+    # Get all parties and colours
     parties = Party.objects.all()
     colours = {p.name:p.colour for p in parties}
-    results = CandidateResult.objects.filter(election=electionObj).filter(elected=True).order_by('constituency__name')
+    
+    # Get all candidate results
+    cand_results = CandidateResult.objects.filter(election=electionObj, elected=True).order_by('constituency__name')
 
+    # Set defaults
     overall_results = {}
     const_results = []
 
-    for result in results:
+    # Iterate over candidate results
+    for result in cand_results:
         if result.party.name in overall_results:
             overall_results[result.party.name] += 1
         else:
@@ -237,15 +252,8 @@ def electionView(request, election, map_type='None'):
             #p.add_tile(xyz.OpenStreetMap.Mapnik)
             p.multi_polygons(xs="x",ys="y",line_width=1,line_color='black',source=geo_source)
             #p.scatter(x='x', y='y', size=15, color='Color', alpha=0.7, source=geo_source)
-            indicator_div = Div(text="",min_width=700)
-            layout = bkCol(bkRow(p, indicator_div),width_policy="max")
-
-            #tap_tool = TapTool(renderers=[patch_renderer])
-            #p.add_tools(tap_tool)
-            #patch_indicator_callback = CustomJS(args=dict(cds=cds, div=indicator_div, election=election),
-                                                #code=bokeh_display_text)
-
-            #cds.selected.js_on_change('indices', patch_indicator_callback)
+            indicator_div = Div(text="", sizing_mode="stretch_width")
+            layout = bkCol(bkRow(p, indicator_div, sizing_mode="stretch_width"), sizing_mode="stretch_width")
 
             script, div = components(layout)
 
@@ -273,18 +281,27 @@ def electionView(request, election, map_type='None'):
 
             cds = ColumnDataSource(data)
 
-            TOOLS = "pan,wheel_zoom,box_zoom,reset,hover,save"
+            TOOLS = "wheel_zoom,reset,save"
+            placeholder = ("<div style='padding:20px 16px;color:#6a7480;font-style:italic;"
+                           "border:1px solid #dde3ea;border-radius:4px;'>"
+                           "Click a constituency to see results.</div>")
 
-            p = figure(title="General Election " + election, tools=TOOLS, tooltips=[("Name", "@name")],
-                x_axis_location=None, y_axis_location=None, aspect_ratio=0.5)
+            p = figure(tools=TOOLS, tooltips=[("Name", "@name")],
+                x_axis_location=None, y_axis_location=None, aspect_ratio=0.5,
+                sizing_mode="stretch_width")
+            p.background_fill_color = None
+            p.border_fill_color = None
+            p.outline_line_color = None
 
-            patch_renderer = p.multi_polygons(xs="x",ys="y",line_width=1,color="colours",line_color='black',
-                                              name="names",source=cds)
+            patch_renderer = p.multi_polygons(xs="x", ys="y", line_width=1,
+                                              fill_color="colours", line_color='black',
+                                              name="names", source=cds)
 
             p.hover.point_policy = "follow_mouse"
 
-            indicator_div = Div(text="",min_width=700)
-            layout = bkCol(bkRow(p, indicator_div),width_policy="max")
+            indicator_div = Div(text=placeholder, width=340, sizing_mode="fixed",
+                                styles={"position": "sticky", "top": "20px", "align-self": "flex-start"})
+            layout = bkCol(bkRow(p, indicator_div, sizing_mode="stretch_width"), sizing_mode="stretch_width")
 
             tap_tool = TapTool(renderers=[patch_renderer])
             p.add_tools(tap_tool)
@@ -326,20 +343,27 @@ def electionView(request, election, map_type='None'):
 
         cds = ColumnDataSource(data)
 
-        TOOLS = "pan,wheel_zoom,box_zoom,reset,hover,save"
+        TOOLS = "wheel_zoom,reset,save"
+        placeholder = ("<div style='padding:20px 16px;color:#6a7480;font-style:italic;"
+                       "border:1px solid #dde3ea;border-radius:4px;'>"
+                       "Click a constituency to see results.</div>")
 
-        p = figure(title="General Election " + election, tools=TOOLS, x_axis_location=None, y_axis_location=None,
-                   tooltips=[("Name", "@name")], aspect_ratio=1)
+        p = figure(tools=TOOLS, x_axis_location=None, y_axis_location=None,
+                   tooltips=[("Name", "@name")], aspect_ratio=1, sizing_mode="stretch_width")
+        p.background_fill_color = None
+        p.border_fill_color = None
+        p.outline_line_color = None
 
         p.grid.grid_line_color = None
         p.hover.point_policy = "follow_mouse"
 
-        patch_renderer  = p.patches('x', 'y', source=cds,
-                  fill_color={"field":"colours"},
+        patch_renderer = p.patches('x', 'y', source=cds,
+                  fill_color={"field": "colours"},
                   fill_alpha=0.7, line_color="white", line_width=0.5)
 
-        indicator_div = Div(text="",min_width=700)
-        layout = bkCol(bkRow(p, indicator_div),width_policy="max")
+        indicator_div = Div(text=placeholder, width=340, sizing_mode="fixed",
+                            styles={"position": "sticky", "top": "20px", "align-self": "flex-start"})
+        layout = bkCol(bkRow(p, indicator_div, sizing_mode="stretch_width"), sizing_mode="stretch_width")
 
         tap_tool = TapTool(renderers=[patch_renderer])
         p.add_tools(tap_tool)
@@ -353,7 +377,7 @@ def electionView(request, election, map_type='None'):
         context['script'] = script
         context['div'] = div
         context['pageview'] = 'hex'
-
+    
     return render(request, "uk_elections/elections.html", context=context)
 
 def constituencyView(request, const):
@@ -401,7 +425,7 @@ def constituencyView(request, const):
     context = {'pageview':'const',
                'consts': constObjs,
                'results': sep_results,}
-
+    
     return render(request, "uk_elections/constituencies.html", context=context)
 
 def countyView(request, county):
@@ -426,7 +450,7 @@ def siteadmin(request):
         View for the admin page
     '''
 
-    status = 'No function run'
+    status = ['No function run']
 
     if request.method == 'POST':
 
@@ -435,3 +459,162 @@ def siteadmin(request):
         status = uploader.errors
 
     return render(request, "uk_elections/siteadmin.html", {'status':status})
+
+def parliamentapi(request):
+
+    if request.method == 'POST':
+        file = request.FILES.get('file')
+        if not file:
+            return render(request, "uk_elections/parliamentapi.html", {'error': 'No file uploaded.'})
+
+        df = pd.read_excel(file)
+        query = TurnoutQuery()
+        results = []
+
+        for _, row in df.iterrows():
+            try:
+                year = row['Year']
+                year = str(int(year)) if isinstance(year, (int, float)) else str(year).strip()
+                turnout = query.query(str(row['Constituency']), year)
+            except Exception as e:
+                turnout = f'Error: {e}'
+            results.append(turnout)
+
+        df[TurnoutQuery.RESULT_COLUMN] = results
+
+        output = io.BytesIO()
+        df.to_excel(output, index=False)
+        output.seek(0)
+
+        response = HttpResponse(
+            output,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="api_results.xlsx"'
+        return response
+
+    return render(request, "uk_elections/parliamentapi.html", {'result_column': TurnoutQuery.RESULT_COLUMN})
+
+
+########## VALIDATION VIEWS ##########
+
+def validate_election_select(request):
+    elections = Election.objects.filter(type='GE').order_by('year')
+    return render(request, 'uk_elections/validate_election_select.html', {'elections': elections})
+
+
+def validate_election(request, election_id):
+    election = get_object_or_404(Election, pk=election_id, type='GE')
+
+    constituency_ids = list(
+        ConstituencyResult.objects.filter(election=election)
+        .order_by('constituency__name')
+        .values_list('constituency_id', flat=True)
+    )
+
+    validation_map = {
+        vr.constituency_id: vr
+        for vr in APIValidationRecord.objects.filter(election=election)
+    }
+
+    rows = []
+    for cid in constituency_ids:
+        c = Constituency.objects.get(pk=cid)
+        vr = validation_map.get(cid)
+        rows.append({
+            'constituency': c,
+            'status': vr.status if vr else 'pending',
+            'checked_at': vr.checked_at if vr else None,
+        })
+
+    checked = sum(1 for r in rows if r['status'] != 'pending')
+    first_unchecked_id = next(
+        (r['constituency'].id for r in rows if r['status'] == 'pending'), None
+    )
+
+    return render(request, 'uk_elections/validate_election.html', {
+        'election': election,
+        'rows': rows,
+        'checked': checked,
+        'total': len(rows),
+        'first_unchecked_id': first_unchecked_id,
+    })
+
+
+def validate_constituency(request, election_id, constituency_id):
+    election = get_object_or_404(Election, pk=election_id, type='GE')
+    constituency = get_object_or_404(Constituency, pk=constituency_id)
+
+    # Ordered list of all constituency IDs for this election (for navigation)
+    all_ids = list(
+        ConstituencyResult.objects.filter(election=election)
+        .order_by('constituency__name')
+        .values_list('constituency_id', flat=True)
+    )
+
+    checked_ids = set(
+        APIValidationRecord.objects.filter(election=election)
+        .exclude(status='pending')
+        .values_list('constituency_id', flat=True)
+    )
+
+    # Next unchecked constituency after the current one (wraps around)
+    try:
+        cur_pos = all_ids.index(constituency_id)
+    except ValueError:
+        cur_pos = -1
+    next_unchecked_id = None
+    for cid in all_ids[cur_pos + 1:] + all_ids[:cur_pos]:
+        if cid not in checked_ids:
+            next_unchecked_id = cid
+            break
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        vr, _ = APIValidationRecord.objects.get_or_create(
+            constituency=constituency, election=election
+        )
+
+        if action == 'apply':
+            # Apply name updates passed as hidden form fields
+            updated = 0
+            for key, new_name in request.POST.items():
+                if key.startswith('name_update_'):
+                    pk = int(key[len('name_update_'):])
+                    CandidateResult.objects.filter(pk=pk).update(candidate=new_name)
+                    updated += 1
+            vr.status = 'updated' if updated else 'clean'
+
+        elif action == 'skip':
+            vr.status = 'clean'
+
+        elif action == 'flag':
+            vr.status = 'flagged'
+            vr.notes = request.POST.get('notes', '')
+
+        vr.checked_at = timezone.now()
+        vr.save()
+
+        if next_unchecked_id:
+            return redirect('validate_constituency',
+                            election_id=election_id,
+                            constituency_id=next_unchecked_id)
+        return redirect('validate_election', election_id=election_id)
+
+    # GET — run comparison
+    result = compare_constituency(constituency, election)
+    vr = APIValidationRecord.objects.filter(
+        constituency=constituency, election=election
+    ).first()
+
+    return render(request, 'uk_elections/validate_constituency.html', {
+        'election': election,
+        'constituency': constituency,
+        'result': result,
+        'has_diff': has_any_diff(result) if not result.get('error') else False,
+        'vr': vr,
+        'next_unchecked_id': next_unchecked_id,
+        'checked': len(checked_ids),
+        'total': len(all_ids),
+        'unchecked': len(all_ids) - len(checked_ids),
+    })

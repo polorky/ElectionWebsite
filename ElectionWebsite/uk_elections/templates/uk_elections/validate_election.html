@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Validate {{ election.year }}{% endblock %}
+{% block content %}
+
+<h1>Validate: {{ election.year }} General Election</h1>
+
+<p>
+  {% if total %}
+    {% widthratio checked total 100 as pct %}
+    <span class="progress-bar-wrap"><span class="progress-bar-fill" style="width:{{ pct }}%"></span></span>
+  {% endif %}
+  <strong>{{ checked }}</strong> / {{ total }} checked
+  &nbsp;&nbsp;
+  {% if first_unchecked_id %}
+    <a href="{% url 'validate_constituency' election.id first_unchecked_id %}"><strong>▶ Continue</strong></a>
+  {% else %}
+    <span class="dot-clean">✓ All checked</span>
+  {% endif %}
+</p>
+
+<p class="muted">
+  <span class="dot-clean">●</span> clean &ensp;
+  <span class="dot-updated">●</span> updated &ensp;
+  <span class="dot-flagged">●</span> flagged &ensp;
+  <span class="dot-pending">●</span> pending
+</p>
+
+<ul class="col-list" style="margin-top:12px;">
+{% for row in rows %}
+  <li>
+    {% if row.status == 'clean' %}<span class="dot-clean">●</span>
+    {% elif row.status == 'updated' %}<span class="dot-updated">●</span>
+    {% elif row.status == 'flagged' %}<span class="dot-flagged">●</span>
+    {% else %}<span class="dot-pending">●</span>{% endif %}
+    <a href="{% url 'validate_constituency' election.id row.constituency.id %}">{{ row.constituency.name }}</a>
+    {% if row.status != 'pending' %}
+      <span class="muted">({{ row.checked_at|date:"d M Y" }})</span>
+    {% endif %}
+  </li>
+{% endfor %}
+</ul>
+
+{% endblock %}

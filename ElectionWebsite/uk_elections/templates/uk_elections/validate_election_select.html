@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Validate Election Data{% endblock %}
+{% block content %}
+<h1>Validate Election Data</h1>
+<p>Select a general election to compare candidate results against the Parliament API.</p>
+<ul>
+{% for election in elections %}
+  <li><a href="{% url 'validate_election' election.id %}">{{ election.year }}</a></li>
+{% endfor %}
+</ul>
+{% endblock %}

@@ -1,29 +1,25 @@
 {% extends "uk_elections/ukhome.html" %}
-
-{% block title %}UK Home{% endblock title %}
-
-{% block submenubar %}
-  <li class="nav"><a class="nav active" href="/uk">UK Home</a></li>
-  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
-  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
-  <li class="nav"><a class="nav" href="/uk/counties/home">Counties</a></li>
-{% endblock submenubar %}
+{% block title %}Site Admin{% endblock %}
 
 {% block content %}
 
-<p>UK Elections</p>
+<h1>Data Import</h1>
 
-<form method="post"  action="/uk/siteadmin" enctype="multipart/form-data">
+<form method="post" action="/uk/siteadmin" enctype="multipart/form-data">
   {% csrf_token %}
-  <input type="file" name="myfile">
-  <button type="submit">Upload</button>
+  <div class="btn-row">
+    <input type="file" name="myfile">
+    <button type="submit">Upload</button>
+  </div>
 </form>
 
-<p>Errors:</p>
+{% if status %}
+<h2>Import log</h2>
 <ul>
-{% for error in status %}
-  <li>{{ error }}</li>
-{% endfor %}
+  {% for error in status %}
+    <li>{{ error }}</li>
+  {% endfor %}
 </ul>
+{% endif %}
 
-{% endblock content %}
+{% endblock %}

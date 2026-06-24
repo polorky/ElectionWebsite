@@ -10,8 +10,9 @@ parsing_list = (
                 #('Counties', 'county'),
                 #('Parties', 'party'),
                 #('Elections', 'general_election'),
-                ('Const_sum', 'constituency'),
+                #('Const_sum', 'constituency'),
                 #('Const_full', 'result'),
+                ('Const_full', 'byelection'),
             )
 
 class Uploader:
@@ -298,7 +299,25 @@ class Parser:
 
         return events, dates_sorted
 
-    def parse_result(self):
+    def _parse_be_date(self, year, actual_date):
+        if actual_date:
+            return actual_date
+        year_clean = year.replace('BB', '').replace('B', '')
+        if len(year_clean) > 8:
+            return datetime.strptime(year_clean, "%Y %d%b")
+        elif len(year_clean) > 4:
+            return datetime.strptime(year_clean, "%Y %b")
+        else:
+            return datetime.strptime(year_clean, "%Y")
+
+    def _get_constituency_at_date(self, name, date):
+        return Constituency.objects.get(
+            Q(end_date__gt=date) | Q(end_date__isnull=True),
+            name=name,
+            start_date__lte=date,
+        )
+
+    def parse_result(self, byelection_run=False):
 
         df = self.df
         df.fillna('',axis=1,inplace=True)
@@ -308,29 +327,35 @@ class Parser:
         for row in filter_df.index:
             year = filter_df.loc[row,'Year']
             constituency_name = filter_df.loc[row,'Constituency']
-            constituency = Constituency.objects.get(name=constituency_name)
             sub_df = df[(df['Year'] == year) & (df['Constituency'] == constituency_name)]
             num_disqualified = 0
-
-            if 'B' in year:
+            
+            if 'B' in str(year) and byelection_run:
+                actual_date = sub_df['Date'].values[0]
+                election_date = self._parse_be_date(year, actual_date)
+                constituency = self._get_constituency_at_date(constituency_name, election_date)
                 be_obj, num_elected = self.create_byelection(year, constituency, sub_df)
 
                 for row in sub_df.index:
                     if sub_df.loc[row,'Party'] == 'Turnout':
                         continue
-                    
+
                     num_disqualified = self.create_candidate_result(be_obj, constituency, sub_df, row, num_disqualified, num_elected)
 
-            else:
+            elif 'B' not in str(year) and not byelection_run:
                 election = Election.objects.get(year=year)
+                constituency = self._get_constituency_at_date(constituency_name, election.date)
                 self.create_constituency_result(election, constituency, sub_df)
 
                 for row in sub_df.index:
                     if sub_df.loc[row,'Party'] == 'Turnout':
                         continue
-                    
+
                     num_disqualified = self.create_candidate_result(election, constituency, sub_df, row, num_disqualified)
     
+    def parse_byelection(self):
+        return self.parse_result(byelection_run=True)
+
     def create_candidate_result(self, election, constituency, sub_df, row, num_disqualified, num_elected=None):
 
         unopposed = sub_df.loc[row,'Votes'] == 'Unopposed'
@@ -338,25 +363,33 @@ class Parser:
 
         if isinstance(sub_df.loc[row,'Votes'],str) and '*' in sub_df.loc[row,'Votes']:
             votes = sub_df.loc[row,'Votes'].replace('*','')
+            percent = sub_df.loc[row,'Percent']
             disqualified = True
             num_disqualified += 1
         elif unopposed:
             votes = None
+            percent = None
         else:
             votes = sub_df.loc[row,'Votes']
+            percent = sub_df.loc[row,'Percent']
 
         notes = sub_df[sub_df['Notes'] != '']['Notes'].values
         if len(notes) > 1:
             raise ValueError(f'Multiple non-empty notes found for {constituency.name} {election.year}: {notes}')
         elif len(notes) == 0:
-            raise ValueError(f'No notes found for {constituency.name} {election.year}')
+            notes = ''
         else:
             notes = notes[0]
 
+        # row is an absolute DataFrame label, not an ordinal position, so compute
+        # the 0-based rank of this candidate among non-Turnout rows in sub_df.
+        candidate_rows = [r for r in sub_df.index if sub_df.loc[r, 'Party'] != 'Turnout']
+        ordinal = candidate_rows.index(row)
+
         if num_elected is not None:
-            elected = not disqualified and (unopposed or row - num_disqualified < num_elected)
+            elected = not disqualified and (unopposed or ordinal - num_disqualified < num_elected)
         else:
-            elected = not disqualified and (unopposed or row - num_disqualified < constituency.seats)
+            elected = not disqualified and (unopposed or ordinal - num_disqualified < constituency.seats)
 
         try:
             party = Party.objects.get(name=sub_df.loc[row,'Party'])
@@ -378,11 +411,11 @@ class Parser:
                 party = party,
                 candidate = sub_df.loc[row,'Candidate'],
                 votes = votes,
-                percent = sub_df.loc[row,'Percent'],
+                percent = percent,
                 unopposed = unopposed,
                 elected = elected,
                 disqualified = disqualified,
-                notes = sub_df.loc[row,'Notes']
+                notes = notes
             )
 
         return num_disqualified
@@ -398,11 +431,14 @@ class Parser:
             if not (sub_df['Votes'] == 'Unopposed').all():
                 raise ValueError(f'No turnout data for {constituency.name} {election.year}, but not all candidates are unopposed')
 
+        if not turnout_percent:
+            turnout_percent = None
+
         notes = sub_df[sub_df['Notes'] != '']['Notes'].values
         if len(notes) > 1:
             raise ValueError(f'Multiple non-empty notes found for {constituency.name} {election.year}: {notes}')
         elif len(notes) == 0:
-            raise ValueError(f'No notes found for {constituency.name} {election.year}')
+            notes = ''
         else:
             notes = notes[0]
 
@@ -419,18 +455,14 @@ class Parser:
     
     def create_byelection(self, year, constituency, sub_df):
 
-        year = year.replace('BB','').replace('B','')
-
-        if len(year) > 8:
-            date = datetime.strptime(year, "%Y %d%b")
-        elif len(year) > 4:
-            date = datetime.strptime(year, "%Y %b")
-        else:
-            date = datetime.strptime(year, "%Y")
+        actual_date = sub_df['Date'].values[0] if 'Date' in sub_df.columns else None
+        date = self._parse_be_date(year, actual_date)
 
         if 'Turnout' in sub_df['Party'].values:
             turnout_votes = sub_df[sub_df['Party'] == 'Turnout']['Votes'].values[0]
             turnout_percent = sub_df[sub_df['Party'] == 'Turnout']['Percent'].values[0]
+            if not turnout_percent:
+                turnout_percent = None
         else:
             turnout_votes = None
             turnout_percent = None

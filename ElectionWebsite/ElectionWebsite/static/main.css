@@ -1,68 +1,318 @@
+/* ============================================================
+   RESET
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
 body {
-  font-family: Helvetica;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #1e2329;
+  background: #f4f6f9;
+  margin: 0;
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+section {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 28px 28px 48px;
+  background: #fff;
+  min-height: calc(100vh - 90px);
+}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+h1, h2, h3, h4 {
+  color: #1a3a5c;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
 }
 
 h1 {
-  color: #154c79;
-  text-align: center;
-  text-shadow: 2px 2px #2596be;
+  font-size: 1.75em;
+  margin-top: 0.3em;
+  padding-bottom: 0.35em;
+  border-bottom: 2px solid #dde3ea;
 }
 
-h2 {
-  color: #154c79;
-  text-shadow: 2px 2px #2596be;
+h2 { font-size: 1.3em; }
+h3 { font-size: 1.05em; }
+
+p { margin: 0 0 0.9em; }
+
+a { color: #1a6ba0; text-decoration: none; }
+a:hover { text-decoration: underline; color: #1052820; }
+
+code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+  background: #eef1f5;
+  padding: 1px 5px;
+  border-radius: 3px;
 }
 
-h3 {
-  color: #154c79;
-  text-decoration: underline;
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+header {
+  background: #1a3a5c;
+  border-bottom: 3px solid #2596be;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.18);
 }
 
-/* Menu bar styling */
 ul.nav {
-  list-style-type: none;
+  list-style: none;
   margin: 0;
   padding: 0;
-  overflow: hidden;
-  background-color: #2596be;
+  display: flex;
+  max-width: 1200px;
 }
 
-li.nav {
-  float: left;
-}
+li.nav { display: block; }
 
 a.nav {
   display: block;
-  font-size: 18px;
-  padding: 15px 15px 15px 15px;
-  color: white;
-  text-align: center;
+  font-size: 0.93em;
+  font-weight: 500;
+  padding: 13px 20px;
+  color: #b8d0e8;
   text-decoration: none;
-  text-shadow: 2px 2px #000000;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, color 0.15s;
 }
 
-li a.nav:hover:not(.active) {
-  background-color: #063970;
+a.nav:hover:not(.active) {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  text-decoration: none;
 }
 
-.active {
-  background-color: #154c79;
+a.nav.active {
+  background: #2596be;
+  color: #fff;
 }
 
-/* Table styling */
-#table {
+/* Sub-nav row */
+header ul.nav + ul.nav {
+  background: #12294a;
+}
+
+header ul.nav + ul.nav a.nav {
+  font-size: 0.86em;
+  padding: 9px 18px;
+  color: #7a9db8;
+}
+
+header ul.nav + ul.nav a.nav:hover:not(.active) {
+  background: rgba(255,255,255,0.08);
+  color: #c8def0;
+}
+
+header ul.nav + ul.nav a.nav.active {
+  background: #1a5c8c;
+  color: #fff;
+}
+
+/* ============================================================
+   TABLES
+   ============================================================ */
+table {
   border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 0.92em;
+  background: #fff;
+  border: 1px solid #dde3ea;
+  border-radius: 5px;
+  overflow: hidden;
 }
 
-#table th {
-  background-color: #154c79;
-  color: white;
-  padding: 5px 15px 5px 15px;
-  border: 2px solid #000000;
+th {
+  background: #1a3a5c;
+  color: #fff;
+  padding: 9px 14px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.88em;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
-#table td {
-  text-align: center;
-  padding: 5px 15px 5px 15px;
-  border: 2px solid #000000;
+td {
+  padding: 7px 14px;
+  border-bottom: 1px solid #eaecef;
+  vertical-align: middle;
 }
+
+tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: #f0f5fb; }
+
+/* Keep colour swatches unaffected by hover */
+tbody tr:hover td[style*="background-color"] { background-color: unset; }
+
+/* Turnout / summary footer rows */
+tfoot th, tfoot td,
+table tr:last-child th {
+  background: #2d4f70;
+  color: #e8f0f8;
+  border-top: 2px solid #1a3a5c;
+}
+
+/* ============================================================
+   FORMS & BUTTONS
+   ============================================================ */
+input[type="text"],
+input[type="file"],
+select,
+textarea {
+  font-family: inherit;
+  font-size: 0.92em;
+  padding: 6px 10px;
+  border: 1px solid #c8d0da;
+  border-radius: 4px;
+  background: #fff;
+  color: #1e2329;
+}
+
+input[type="file"] { padding: 4px 6px; }
+
+button,
+input[type="submit"] {
+  font-family: inherit;
+  font-size: 0.9em;
+  font-weight: 500;
+  padding: 7px 18px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #2596be;
+  color: #fff;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+button:hover,
+input[type="submit"]:hover {
+  background: #1d7ca1;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.btn-success { background: #2d8a4e; }
+.btn-success:hover { background: #226e3d; }
+
+.btn-danger { background: #b93028; }
+.btn-danger:hover { background: #951f1a; }
+
+.btn-neutral { background: #4a5568; }
+.btn-neutral:hover { background: #333c4d; }
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 18px 0;
+  align-items: center;
+}
+
+form p { margin-bottom: 0.6em; }
+
+/* ============================================================
+   ALERTS / CALLOUTS
+   ============================================================ */
+.alert {
+  padding: 10px 16px;
+  margin: 14px 0;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.93em;
+}
+
+.alert-warning {
+  background: #fff8e1;
+  border-left: 4px solid #e6a817;
+}
+
+.alert-error {
+  background: #fdecea;
+  border-left: 4px solid #b93028;
+}
+
+.alert-info {
+  background: #e8f4fb;
+  border-left: 4px solid #2596be;
+}
+
+/* ============================================================
+   VALIDATION — STATUS DOTS
+   ============================================================ */
+.dot-clean   { color: #2d8a4e; }
+.dot-updated { color: #2171a8; }
+.dot-flagged { color: #b93028; }
+.dot-pending { color: #b0bac8; }
+
+/* Validation table row states */
+.row-diff     { background: #fffce6; }
+.row-api-only { background: #fff0ee; }
+.row-db-only  { background: #fff0ee; }
+
+.badge-diff     { color: #8a6800; font-size: 0.82em; font-weight: 600; }
+.badge-mismatch { color: #b93028; font-size: 0.82em; font-weight: 600; }
+.badge-apionly  { color: #b93028; font-size: 0.82em; font-weight: 600; }
+.text-muted     { color: #6a7480; }
+.text-strike    { text-decoration: line-through; color: #9aa4b0; }
+
+/* ============================================================
+   MULTI-COLUMN LIST (election / constituency indexes)
+   ============================================================ */
+.col-list {
+  columns: 3;
+  column-gap: 24px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.col-list li {
+  break-inside: avoid;
+  padding: 2px 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 800px) {
+  .col-list { columns: 2; }
+  section { padding: 18px 16px 40px; }
+}
+
+@media (max-width: 500px) {
+  .col-list { columns: 1; }
+}
+
+/* ============================================================
+   PROGRESS / STATUS BAR
+   ============================================================ */
+.progress-bar-wrap {
+  background: #dde3ea;
+  border-radius: 4px;
+  height: 8px;
+  width: 100%;
+  max-width: 320px;
+  overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: #2d8a4e;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+/* ============================================================
+   UTILITY
+   ============================================================ */
+.muted { color: #6a7480; font-size: 0.88em; }

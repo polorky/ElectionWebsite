@@ -38,6 +38,7 @@ class Constituency(models.Model):
     '''
     name = models.CharField(max_length=255)
     alt_name = models.CharField(max_length=255,blank=True,null=True)
+    api_names = models.JSONField(default=list, blank=True)
     modern_county = models.ManyToManyField(County, related_name='modern_counties')
     historic_county = models.ManyToManyField(County, related_name='historic_counties')
     start_date = models.DateTimeField(default=None,null=True,blank=True)
@@ -85,7 +86,7 @@ class Election(models.Model):
     Class for general elections
     '''
     type = models.CharField(max_length=20, choices=(('GE', 'General Election'), ('BE', 'By-Election')))
-    year = models.CharField(max_length=4,blank=True,null=True)
+    year = models.CharField(max_length=10,blank=True,null=True)
     date = models.DateTimeField()
     endDate = models.DateTimeField(blank=True,null=True)
     turnout_votes = models.FloatField(blank=True,null=True)
@@ -154,3 +155,23 @@ class CandidateResult(models.Model):
 
     def __str__(self):
         return f'{self.election.type} Result {self.election.year if self.election.type == "GE" else self.election.date} - {self.constituency.name} - {self.candidate} ({self.party.name})'
+
+class APIValidationRecord(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('clean', 'Clean'),
+        ('updated', 'Updated'),
+        ('flagged', 'Flagged'),
+    ]
+    constituency = models.ForeignKey(Constituency, on_delete=models.CASCADE, related_name='validation_records')
+    election = models.ForeignKey('Election', on_delete=models.CASCADE, related_name='validation_records')
+    checked_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ('constituency', 'election')
+
+    def __str__(self):
+        return f'{self.constituency.name} / {self.election.year} — {self.status}'
+

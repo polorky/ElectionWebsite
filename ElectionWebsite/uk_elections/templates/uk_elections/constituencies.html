@@ -40,16 +40,16 @@
       <b>{{ const.start_date|date:"Y" }} - Present - Seats: {{ const.seats }}</b>
     {% endif %}
     {% if const.predecessors %}
-      <p>Predecessors: {% for p in const.predecessors.all %}<a href="{{ p.name }}">{{ p.name }}</a> {% endfor %}</p>
+      <p>Predecessors: {% for p in const.predecessors.all %}<a href="{{ p.name }}">{{ p.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
     {% endif %}
     {% if const.successors %}
-      <p>Successors: {% for s in const.successors.all %}<a href="{{ s.name }}">{{ s.name }}</a> {% endfor %}</p>
+      <p>Successors: {% for s in const.successors.all %}<a href="{{ s.name }}">{{ s.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
     {% endif %}
   {% endfor %}
 
   <h2>Election Results</h2>
   {% for result in results %}
-    {% if result.0.0.type == 'General' %}
+    {% if result.0.0.type == 'GE' %}
       <h3><a href="/uk/elections/{{ result.0.0.election }}/map">{{ result.0.0.election }} General Election</a></h3>
     {% else %}
       <h3>By-Election {{ result.0.0.election }}</h3>

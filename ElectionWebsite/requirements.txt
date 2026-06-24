@@ -7,3 +7,5 @@ geojson==3.2.0
 matplotlib==3.10.8
 gunicorn
 whitenoise
+requests
+beautifulsoup4

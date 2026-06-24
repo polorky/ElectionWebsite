@@ -34,7 +34,7 @@ class ConstituencyAdminForm(forms.ModelForm):
             self.fields['predecessors'].queryset = Constituency.objects.filter(end_date__isnull=False)
 
 class ConstituencyAdmin(admin.ModelAdmin):
-    list_display = ('name','formatted_start_date','formatted_end_date','seats','get_predecessors_display')
+    list_display = ('name','api_names','formatted_start_date','formatted_end_date','seats','get_predecessors_display')
     list_filter = ['name']
     #form = ConstituencyAdminForm
     #filter_horizontal = ['predecessors']
@@ -58,6 +58,11 @@ class ConstituencyAdmin(admin.ModelAdmin):
             return ", ".join([p.name for p in predecessors])
         return "-"
     get_predecessors_display.short_description = 'Predecessors'
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == 'predecessors':
+            kwargs['queryset'] = Constituency.objects.order_by('name')
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
 
     def get_predecessors(self, obj):
         if obj.pk:
@@ -83,6 +88,11 @@ class ConstituencyResultAdmin(admin.ModelAdmin):
 class CandidateResultAdmin(admin.ModelAdmin):
     list_display = ('constituency','election','party','candidate')
     list_filter = ['constituency','election']
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == 'party':
+            kwargs['queryset'] = Party.objects.order_by('name')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 admin.site.register(Region, RegionAdmin)
 admin.site.register(County, CountyAdmin)
