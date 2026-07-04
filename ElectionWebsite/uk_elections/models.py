@@ -100,6 +100,7 @@ class Election(models.Model):
     opp_leader = models.TextField(blank=True,null=True)
     map = models.CharField(max_length=20,blank=True,null=True)
     hex = models.CharField(max_length=20,blank=True,null=True)
+    gj = models.CharField(max_length=20,blank=True,null=True)
 
     # For byelections only
     constituency = models.ForeignKey(

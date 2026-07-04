@@ -7,6 +7,7 @@
   <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
   <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
   <li class="nav"><a class="nav active" href="/uk/counties/home">Counties</a></li>
+  <li class="nav"><a class="nav" href="/uk/boundaries">Boundary Changes</a></li>
 {% endblock submenubar %}
 
 {% block content %}
@@ -29,6 +30,30 @@
 {% else %}
 
   <h2>{{ county.name }}</h2>
+
+  {% if tl_div %}
+    <h3>Constituency Timeline</h3>
+    {{ tl_div|safe }}
+    {{ tl_script|safe }}
+  {% endif %}
+
+  {% if modern_consts %}
+    <h3>Constituencies</h3>
+    <ul>
+      {% for name in modern_consts %}
+        <li><a href="/uk/constituencies/{{ name }}">{{ name }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if historic_consts %}
+    <h3>Historic Constituencies</h3>
+    <ul>
+      {% for name in historic_consts %}
+        <li><a href="/uk/constituencies/{{ name }}">{{ name }}</a></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
 
 {% endif %}
 

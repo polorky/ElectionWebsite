@@ -1,391 +1,44 @@
 from .models import *
 from .upload import Uploader
+from .map_functions import ElectionMap
 from .parliament_api import TurnoutQuery
-from .validation import compare_constituency, has_any_diff, db_year_to_api_year
+from .validation import compare_constituency, has_any_diff
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpResponse
+from django.db.models import Q
 from django.utils import timezone
 import io
 import pandas as pd
-import numpy as np
 from datetime import datetime
 from bokeh.plotting import figure
 from bokeh.embed import components
-from bokeh.models import CustomJS, Div, TapTool, ColumnDataSource, MultiPolygons, Plot, LinearAxis, Grid, GeoJSONDataSource
-from bokeh.layouts import column as bkCol
-from bokeh.layouts import row as bkRow
-import pickle, os, urllib, json, geojson
-from matplotlib.patches import RegularPolygon
-from django.templatetags.static import static
-from django.conf import settings
+from bokeh.models import CustomJS, TapTool, ColumnDataSource, FixedTicker, LabelSet, Span, LinearAxis
 import os
-
-########## GLOBAL VARIABLES ##########
 
 # Construct path to app's static directory
 app_static_dir = os.path.join(os.path.dirname(__file__), 'static')
 
-# Template for the text to be displayed when a constituency is clicked on the map
-bokeh_display_text = """div.text = "<style>table {font-family: arial, sans-serif;border-collapse: collapse;width: 60%;}" +
-        "td {border: 0.5px solid #000000;text-align: left;padding: 1px 5px 1px 5px;}" +
-        "th {border: 0.5px solid #000000;background-color: #E7E6E7;text-align: center;padding: 1px 5px 1px 5px;}" +
-        ".blank {border: none;}</style>" +
-        "<h2>" + cds.data['name'][cb_obj.indices] + "</h2><h3>" + election + " General Election Results</h3><br>" +
-          "<b>Winning Party:</b> " + cds.data['results'][cb_obj.indices]['Party'][0] + "<br><br>" +
-          "<table>" +
-          "<tr>" +
-            "<th style='width:1px;'> </th>" +
-            "<th>Party</th>" +
-            "<th>Candidate</th>" +
-            "<th style='width:60px;'>Votes</th>" +
-            "<th style='width:60px;'>Percent</th>" +
-          "</tr>"
-          let partyList = cds.data['results'][cb_obj.indices]['Party']
-          for (let i = 0; i < Object.keys(partyList).length; i++) {
-            div.text += "<tr><td style='width:1px;background-color:" + cds.data['results'][cb_obj.indices]['Party Colour'][i] + ";'> </td>";
-            div.text += "<td>" + cds.data['results'][cb_obj.indices]['Party'][i] + "</td>";
-            div.text += "<td>" + cds.data['results'][cb_obj.indices]['Candidate'][i] + "</td>";
-            div.text += "<td style='width:60px;'>" + cds.data['results'][cb_obj.indices]['Votes'][i] + "</td>";
-            div.text += "<td style='width:60px;'>" + cds.data['results'][cb_obj.indices]['Percent'][i] + "</td></tr>";
-            }
-          div.text += "</table><br>"
-          div.text += "<p><a href='/uk/constituencies/" + cds.data['name'][cb_obj.indices] + "'>Constituency Page</a>"
-       """
-
-########## AUXILLERY FUNCTIONS ##########
-
-def get_colours(consts, election, mode='party'):
-
-    colours = []
-
-    if mode[:2] == 'SP':
-
-            party = mode[2:]
-            coalition = ''
-            if Party.party_list[party].coalition != '':
-                coalition = Party.party_list[party].coalition
-
-            if party in Party.party_list and Party.party_list[party].colour_scale != []:
-                colour_scale = Party.party_list[party].colour_scale
-            else:
-                colour_scale = ['#403943','#5F5763','#7F7484','#A199A5','#C4BEC6']
-
-            percents = []
-
-            for const in consts:
-                if const not in Constituency.const_list.keys():
-                    try:
-                        const_obj = Constituency.previous_list[const]
-                    except:
-                        raise Exception('Constituency not in database',const,election)
-                else:
-                    const_obj = Constituency.const_list[const]
-                df = const_obj.election_list[election].results
-                if party in list(df.Party):
-                    percent_series = df.loc[df['Party'] == party, 'Percent']
-                    if percent_series[percent_series.index[0]] != '':
-                        percents.append(percent_series[percent_series.index[0]])
-
-            arrays = np.array_split(sorted(percents,reverse=True),5)
-
-            const_count = 0
-            colour_count = 0
-            for const in consts:
-                if const not in Constituency.const_list.keys():
-                    try:
-                        const_obj = Constituency.previous_list[const]
-                    except:
-                        raise Exception('Constituency not in database',const,election)
-                else:
-                    const_obj = Constituency.const_list[const]
-                df = const_obj.election_list[election].results
-                if party in list(df.Party):
-                    percent_series = df.loc[df['Party'] == party, 'Percent']
-                    percent = percent_series[percent_series.index[0]]
-                    count = 0
-                    for array in arrays:
-                        if percent in array:
-                            colour_count += 1
-                            colours.append(colour_scale[count])
-                            break
-                        count += 1
-                else:
-                    colours.append('#C3C4BE')
-                const_count += 1
-                #print(const_count,colour_count,end=':')
-                #if colour_count > 650:
-                    #print(const)
-
-            return colours
-
-    electionObj = Election.objects.get(year=election, type='GE')
-    results = CandidateResult.objects.filter(election=electionObj).filter(elected=True)
-    winners = []
-    for const in consts:
-        constObj = Constituency.objects.get(name=const)
-        res = results.filter(constituency=constObj)
-        winners.append(res[0].party)
-
-    colours = [party.colour for party in winners]
-
-    return colours
-
-def get_results(consts, election):
-
-        all_results = []
-        electionObj = Election.objects.get(year=election, type='GE')
-
-        for const in consts:
-            constObj = Constituency.objects.get(name=const)
-            results = CandidateResult.objects.filter(constituency=constObj).filter(election=electionObj)
-            resDict = {'Party Colour':[],'Party':[],'Candidate':[],'Votes':[],'Percent':[]}
-            for res in results:
-                resDict['Party Colour'].append(res.party.colour)
-                resDict['Party'].append(res.party.name)
-                resDict['Candidate'].append(res.candidate)
-                resDict['Votes'].append(res.votes)
-                resDict['Percent'].append(res.percent)
-            all_results.append(resDict)
-
-        return all_results
-
-def get_hex_coords(hex_coords):
-
-    final_coords = []
-    for hex_string in hex_coords:
-        hex_split = hex_string.split(',')
-        hex_split = [int(x) for x in hex_split]
-        final_coords.append(hex_split)
-
-    # Horizontal cartesian coords
-    hcoord_n = [c[0] for c in final_coords]
-    # Vertical cartersian coords
-    vcoord_n = [2. * np.sin(np.radians(60)) * (c[1] - c[2]) /3. for c in final_coords]
-
-    x_list = []
-    y_list = []
-    for i in range(0,len(hcoord_n)):
-        hex1 = RegularPolygon((hcoord_n[i], vcoord_n[i]), numVertices=6, radius=2. / 3.,orientation=np.radians(30))
-        points = hex1.get_verts().tolist()
-        x_list.append([m[0] for m in points])
-        y_list.append([m[1] for m in points])
-
-    return x_list, y_list
-
-def hex_to_rgb(hex):
-  return tuple(int(hex[i:i+2], 16) for i in (0, 2, 4))
-
 ########## PAGE VIEWS ##########
 
 def electionView(request, election, map_type='None'):
-
-    module_dir = os.path.dirname(__file__)   #get current directory
 
     # Get all general elections
     all_elections = list(Election.objects.filter(type='GE').order_by('-date'))
 
     # If home requested return election list
     if election == 'home':
-        return render(request, "uk_elections/elections.html", {'pageview':'home', 'elections': all_elections})
+        context = {'pageview':'home', 'elections': all_elections}
+    else:
+        em = ElectionMap(request, election, map_type)
+        context = em.context
 
-    # Other set pageview to 'results'
-    context = {'pageview':'results'}
-
-    # Get election instance requested, add to context and get index
-    electionObj = Election.objects.get(year=election, type='GE')
-    context['election'] = electionObj
-    index = all_elections.index(electionObj)
-
-    # all_elections is ordered -date (newest first)
-    # so index+1 = older = "Previous" and index-1 = newer = "Next"
-    context['next'] = all_elections[index - 1] if index > 0 else None
-    context['last'] = all_elections[index + 1] if index < len(all_elections) - 1 else None
-
-    # Get all parties and colours
-    parties = Party.objects.all()
-    colours = {p.name:p.colour for p in parties}
-    
-    # Get all candidate results
-    cand_results = CandidateResult.objects.filter(election=electionObj, elected=True).order_by('constituency__name')
-
-    # Set defaults
-    overall_results = {}
-    const_results = []
-
-    # Iterate over candidate results
-    for result in cand_results:
-        if result.party.name in overall_results:
-            overall_results[result.party.name] += 1
-        else:
-            overall_results[result.party.name] = 1
-        res_dict = {'Constituency':result.constituency.name,
-                    'Party':result.party.name,
-                    'Colour':colours[result.party.name],
-                    'Candidate':result.candidate}
-        const_results.append(res_dict)
-
-    overall_results = [(k,overall_results[k],colours[k]) for k in overall_results.keys()]
-    overall_results.sort(key=lambda x: x[1], reverse=True)
-    context['overall_results'] = overall_results
-    context['const_results'] = const_results
-
-    if electionObj.map and map_type == 'map':
-        
-        context['pageview'] = 'map'
-
-        if electionObj.year in []:
-
-            file_path = os.path.join(app_static_dir, 'Test.geojson')
-
-            with open(file_path) as f:
-                gj = geojson.load(f)
-            #from bokeh.sampledata.sample_geojson import geojson as test_gj
-            #gj = json.loads(test_gj)
-
-            #gj2 = {'features':gj['features'][:2]}
-            geo_source = GeoJSONDataSource(geojson=json.dumps(gj))
-            p = figure(x_range=(-2000000, 6000000), y_range=(-1000000, 7000000),
-                       x_axis_type="mercator", y_axis_type="mercator")
-            #TOOLTIPS = [('Organisation', '@OrganisationName')]
-            TOOLS = "pan,wheel_zoom,box_zoom,reset,hover,save"
-            #p = figure(x_axis_location=None, y_axis_location=None,tools=TOOLS)
-            #p.add_tile(xyz.OpenStreetMap.Mapnik)
-            p.multi_polygons(xs="x",ys="y",line_width=1,line_color='black',source=geo_source)
-            #p.scatter(x='x', y='y', size=15, color='Color', alpha=0.7, source=geo_source)
-            indicator_div = Div(text="", sizing_mode="stretch_width")
-            layout = bkCol(bkRow(p, indicator_div, sizing_mode="stretch_width"), sizing_mode="stretch_width")
-
-            script, div = components(layout)
-
-        else:
-
-            file_path = os.path.join(app_static_dir, 'uk_svg_data_ws')
-            with open(file_path, "rb") as f:
-                svgs = pickle.load(f)
-            file_path = os.path.join(app_static_dir, 'uk_colour_data_ws')
-            with open(file_path, "rb") as f:
-                all_colours = pickle.load(f)
-            file_path = os.path.join(app_static_dir, 'uk_results_data_ws')
-            with open(file_path, "rb") as f:
-                all_results = pickle.load(f)
-
-            svg_dict = svgs[electionObj.map]
-
-            names = svg_dict['names']
-            #colours = get_colours(names, election)
-            #results = get_results(names, election)
-            colours = all_colours[election]
-            results = all_results[election]
-
-            data = dict(x=svg_dict['xs'],y=svg_dict['ys'],name=names,colours=colours,results=results)
-
-            cds = ColumnDataSource(data)
-
-            TOOLS = "wheel_zoom,reset,save"
-            placeholder = ("<div style='padding:20px 16px;color:#6a7480;font-style:italic;"
-                           "border:1px solid #dde3ea;border-radius:4px;'>"
-                           "Click a constituency to see results.</div>")
-
-            p = figure(tools=TOOLS, tooltips=[("Name", "@name")],
-                x_axis_location=None, y_axis_location=None, aspect_ratio=0.5,
-                sizing_mode="stretch_width")
-            p.background_fill_color = None
-            p.border_fill_color = None
-            p.outline_line_color = None
-
-            patch_renderer = p.multi_polygons(xs="x", ys="y", line_width=1,
-                                              fill_color="colours", line_color='black',
-                                              name="names", source=cds)
-
-            p.hover.point_policy = "follow_mouse"
-
-            indicator_div = Div(text=placeholder, width=340, sizing_mode="fixed",
-                                styles={"position": "sticky", "top": "20px", "align-self": "flex-start"})
-            layout = bkCol(bkRow(p, indicator_div, sizing_mode="stretch_width"), sizing_mode="stretch_width")
-
-            tap_tool = TapTool(renderers=[patch_renderer])
-            p.add_tools(tap_tool)
-            patch_indicator_callback = CustomJS(args=dict(cds=cds, div=indicator_div, election=election),
-                                                code=bokeh_display_text)
-
-            cds.selected.js_on_change('indices', patch_indicator_callback)
-
-            script, div = components(layout)
-        
-        context['script'] = script
-        context['div'] = div            
-
-    elif electionObj.hex and map_type == 'hex':
-
-        hex_col = electionObj.hex
-        if hex_col == '':
-            return render(request, "uk_elections/elections.html", context={'pageview':'NoHex'})
-
-        file_path = os.path.join(app_static_dir, 'uk_hex_data_ws')
-        with open(file_path, "rb") as f:
-            hex_df = pickle.load(f)
-        file_path = os.path.join(app_static_dir, 'uk_hex_colour_data_ws')
-        with open(file_path, "rb") as f:
-            all_colours = pickle.load(f)
-        file_path = os.path.join(app_static_dir, 'uk_hex_results_data_ws')
-        with open(file_path, "rb") as f:
-            all_results = pickle.load(f)
-
-        hex_df = hex_df[hex_df[hex_col] != ""]
-
-        names = list(hex_df['Constituency'])
-        coords = list(hex_df[hex_col])
-        xs, ys = get_hex_coords(coords)
-        colours = all_colours[election]
-        results = all_results[election]
-
-        data = dict(x=xs, y=ys, name=names, colours=colours, results=results)
-
-        cds = ColumnDataSource(data)
-
-        TOOLS = "wheel_zoom,reset,save"
-        placeholder = ("<div style='padding:20px 16px;color:#6a7480;font-style:italic;"
-                       "border:1px solid #dde3ea;border-radius:4px;'>"
-                       "Click a constituency to see results.</div>")
-
-        p = figure(tools=TOOLS, x_axis_location=None, y_axis_location=None,
-                   tooltips=[("Name", "@name")], aspect_ratio=1, sizing_mode="stretch_width")
-        p.background_fill_color = None
-        p.border_fill_color = None
-        p.outline_line_color = None
-
-        p.grid.grid_line_color = None
-        p.hover.point_policy = "follow_mouse"
-
-        patch_renderer = p.patches('x', 'y', source=cds,
-                  fill_color={"field": "colours"},
-                  fill_alpha=0.7, line_color="white", line_width=0.5)
-
-        indicator_div = Div(text=placeholder, width=340, sizing_mode="fixed",
-                            styles={"position": "sticky", "top": "20px", "align-self": "flex-start"})
-        layout = bkCol(bkRow(p, indicator_div, sizing_mode="stretch_width"), sizing_mode="stretch_width")
-
-        tap_tool = TapTool(renderers=[patch_renderer])
-        p.add_tools(tap_tool)
-
-        patch_indicator_callback = CustomJS(args=dict(cds=cds, div=indicator_div, election=election),
-                                            code=bokeh_display_text)
-
-        cds.selected.js_on_change('indices', patch_indicator_callback)
-
-        script, div = components(layout)
-        context['script'] = script
-        context['div'] = div
-        context['pageview'] = 'hex'
-    
-    return render(request, "uk_elections/elections.html", context=context)
+    return render(request, "uk_elections/elections.html", context)
 
 def constituencyView(request, const):
 
     if const == 'home':
 
-        consts = Constituency.objects.all().order_by('name')
-        names = list({const.name for const in consts})
+        names = list(Constituency.objects.values_list('name', flat=True).order_by('name').distinct())
 
         return render(request, "uk_elections/constituencies.html", {'pageview':'home', 'consts': names})
 
@@ -411,6 +64,46 @@ def constituencyView(request, const):
     turnouts.rename(columns={'election__type':'type','election__date':'date','election__year':'election'},inplace=True)
 
     results.sort_values(by=['votes','date'],ascending=False,inplace=True)
+
+    # Vote share history chart (GE elections with known percentages)
+    vs_script = vs_div = ''
+    ge = results[(results['type'] == 'GE') & results['percent'].notna()].copy()
+    if not ge.empty:
+        ge['year'] = pd.to_datetime(ge['date']).dt.year
+
+        p_vs = figure(
+            height=320,
+            tools="hover,reset,save",
+            x_axis_label='Year', y_axis_label='Vote Share (%)',
+            sizing_mode="stretch_width",
+        )
+        p_vs.background_fill_color = None
+        p_vs.border_fill_color = None
+        p_vs.outline_line_color = None
+        p_vs.xgrid.grid_line_color = '#e8e8e8'
+        p_vs.ygrid.grid_line_color = '#e8e8e8'
+        p_vs.xaxis.ticker = FixedTicker(ticks=sorted(ge['year'].unique().tolist()))
+        p_vs.xaxis.major_label_orientation = 0.785  # 45 degrees
+
+        all_years = sorted(ge['year'].unique().tolist())
+        for party, grp in ge.groupby('party'):
+            grp = grp.sort_values('year')
+            party_pcts = dict(zip(grp['year'], grp['percent']))
+            colour = grp['colour'].iloc[0]
+            pcts = [float(party_pcts.get(yr, float('nan'))) for yr in all_years]
+            src = ColumnDataSource(dict(
+                year=all_years,
+                pct=pcts,
+                party=[party] * len(all_years),
+            ))
+            p_vs.line('year', 'pct', color=colour, line_width=2, source=src)
+            p_vs.scatter('year', 'pct', color=colour, size=6, source=src)
+
+        p_vs.hover.tooltips = [('Party', '@party'), ('Year', '@year'), ('Vote Share', '@pct{0.1f}%')]
+        p_vs.hover.mode = 'mouse'
+        p_vs.legend.visible = False
+        vs_script, vs_div = components(p_vs)
+
     sep_results = []
     allelections = list(set([(results.loc[row,'election'],results.loc[row,'date']) for row in results.index]))
     allelections.sort(key=lambda x: x[1],reverse=True)
@@ -424,24 +117,173 @@ def constituencyView(request, const):
 
     context = {'pageview':'const',
                'consts': constObjs,
-               'results': sep_results,}
+               'results': sep_results,
+               'vs_div': vs_div,
+               'vs_script': vs_script,}
     
     return render(request, "uk_elections/constituencies.html", context=context)
+
+def boundaryChangesView(request):
+
+    elections = list(Election.objects.filter(type='GE').order_by('date'))
+
+    # For years with two elections (e.g. 1910, 1974) associate boundary changes with the first
+    seen_years = set()
+    unique_elections = []
+    for e in elections:
+        cal_year = e.date.year
+        if cal_year not in seen_years:
+            seen_years.add(cal_year)
+            unique_elections.append(e)
+
+    changes = []
+    for e in unique_elections:
+        cal_year = e.date.year
+        created  = list(Constituency.objects.filter(start_date__year=cal_year).order_by('name'))
+        abolished = list(Constituency.objects.filter(end_date__year=cal_year).order_by('name'))
+        if created or abolished:
+            changes.append({'election': e, 'created': created, 'abolished': abolished})
+
+    changes.reverse()  # most recent first
+
+    return render(request, 'uk_elections/boundary_changes.html', {
+        'pageview': 'changes',
+        'changes': changes,
+    })
 
 def countyView(request, county):
 
     if county == 'home':
 
-        counties = County.objects.all().order_by('name')
-        names = list({county.name for county in counties})
+        names = list(County.objects.values_list('name', flat=True).order_by('name').distinct())
 
         return render(request, "uk_elections/county.html", {'pageview':'home', 'counties': names})
 
     try:
         countyObj = County.objects.get(name=county)
-        return render(request, "uk_elections/county.html", {'pageview':'county', 'county':countyObj})
-    except:
+    except County.DoesNotExist:
         return render(request, "uk_elections/county.html", {'pageview':'nocounty'})
+
+    modern_consts = list(
+        countyObj.modern_counties.values_list('name', flat=True).order_by('name').distinct()
+    )
+    historic_consts = list(
+        countyObj.historic_counties.values_list('name', flat=True)
+        .order_by('name').distinct()
+        .exclude(name__in=modern_consts)
+    )
+
+    # Timeline — all constituency periods linked to this county
+    all_const_objs = list(
+        Constituency.objects.filter(
+            Q(modern_county=countyObj) | Q(historic_county=countyObj)
+        ).distinct().order_by('name', 'start_date')
+    )
+
+    tl_script = tl_div = ''
+    CLIP_YEAR = 1830
+    current_year = datetime.now().year
+
+    if all_const_objs:
+        # Group periods by name — each unique name gets one row, multiple bars
+        grouped = {}
+        for c in all_const_objs:
+            grouped.setdefault(c.name, []).append(c)
+        unique_names = sorted(
+            grouped.keys(),
+            key=lambda name: min(
+                c.start_date.year if c.start_date else 0 for c in grouped[name]
+            )
+        )
+        n = len(unique_names)
+
+        ys, names_tl, starts, ends, actual_starts, end_labels, bar_colors = [], [], [], [], [], [], []
+        for row_idx, name in enumerate(unique_names):
+            name_active = any(c.end_date is None for c in grouped[name])
+            for c in grouped[name]:
+                start_yr = c.start_date.year if c.start_date else CLIP_YEAR
+                end_yr   = c.end_date.year   if c.end_date   else current_year
+                ys.append(row_idx)
+                names_tl.append(name)
+                starts.append(max(start_yr, CLIP_YEAR))
+                ends.append(end_yr)
+                actual_starts.append(start_yr)
+                end_labels.append('Present' if not c.end_date else str(end_yr))
+                bar_colors.append('#5a9e6f' if name_active else '#da7672')
+
+        source = ColumnDataSource(dict(
+            y=ys, left=starts, right=ends,
+            name=names_tl, actual_start=actual_starts, end_label=end_labels,
+            bar_color=bar_colors,
+        ))
+
+        p_tl = figure(
+            height=max(200, n * 28 + 50),
+            x_range=(CLIP_YEAR, current_year + 5),
+            y_range=(n - 0.5, -0.5),   # flipped: index 0 at top
+            tools="hover,reset,save",
+            sizing_mode="stretch_width",
+        )
+        p_tl.background_fill_color = None
+        p_tl.border_fill_color = None
+        p_tl.outline_line_color = None
+        p_tl.ygrid.grid_line_color = None
+        p_tl.xgrid.grid_line_color = '#e8e8e8'
+
+        bar_renderer = p_tl.hbar(y='y', left='left', right='right', height=0.6,
+                                  fill_color='bar_color', line_color='white', source=source)
+
+        tap_cb = CustomJS(args=dict(source=source), code="""
+            const idx = source.selected.indices;
+            if (idx.length > 0) {
+                const name = source.data['name'][idx[0]];
+                window.location.href = '/uk/constituencies/' + encodeURIComponent(name);
+            }
+        """)
+        source.selected.js_on_change('indices', tap_cb)
+        p_tl.add_tools(TapTool(renderers=[bar_renderer]))
+
+        p_tl.yaxis.ticker = FixedTicker(ticks=list(range(n)))
+        p_tl.yaxis.major_label_overrides = {i: name for i, name in enumerate(unique_names)}
+        p_tl.yaxis.major_label_text_font_size = '10pt'
+
+        # Year scale on both top and bottom
+        p_tl.add_layout(LinearAxis(), 'above')
+
+        p_tl.hover.tooltips = [
+            ('Constituency', '@name'),
+            ('Created',      '@actual_start'),
+            ('Ended',        '@end_label'),
+        ]
+        p_tl.hover.point_policy = 'follow_mouse'
+
+        # Dashed line at clip boundary
+        p_tl.add_layout(Span(location=CLIP_YEAR, dimension='height',
+                             line_color='#aaaaaa', line_dash='dashed', line_width=1))
+
+        # Labels inside bars for pre-1830 start dates
+        pre_ys    = [ys[i] for i, s in enumerate(actual_starts) if s < CLIP_YEAR]
+        pre_texts = [f'◄ {actual_starts[i]}' for i, s in enumerate(actual_starts) if s < CLIP_YEAR]
+        if pre_ys:
+            pre_src = ColumnDataSource(dict(
+                x=[CLIP_YEAR] * len(pre_ys), y=pre_ys, text=pre_texts,
+            ))
+            p_tl.add_layout(LabelSet(
+                x='x', y='y', text='text', source=pre_src,
+                x_offset=4, y_offset=-7,
+                text_font_size='9pt', text_color='#444444', text_align='left',
+            ))
+
+        tl_script, tl_div = components(p_tl)
+
+    return render(request, "uk_elections/county.html", {
+        'pageview':       'county',
+        'county':         countyObj,
+        'modern_consts':  modern_consts,
+        'historic_consts': historic_consts,
+        'tl_script':      tl_script,
+        'tl_div':         tl_div,
+    })
 
 ########## FUNCTIONS AND VIEWS TO PARSE RAW DATA ##########
 

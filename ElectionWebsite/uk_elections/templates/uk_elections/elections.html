@@ -7,6 +7,7 @@
   <li class="nav"><a class="nav active" href="/uk/elections/home">Elections</a></li>
   <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
   <li class="nav"><a class="nav" href="/uk/counties/home">Counties</a></li>
+  <li class="nav"><a class="nav" href="/uk/boundaries">Boundary Changes</a></li>
 {% endblock submenubar %}
 
 {% block content %}
@@ -17,18 +18,21 @@
 
   <ul>
     {% for election in elections %}
-      {% if election.map and election.hex %}
-        <li>
+      <li>
+        {% if election.gj %}
+          <a href="/uk/elections/{{ election.year }}/gj">{{ election.year }} Geographical Map</a> -
+        {% endif %}
+        {% if election.map and election.hex %}
           <a href="/uk/elections/{{ election.year }}/map">{{ election.year }} Map</a> -
           <a href="/uk/elections/{{ election.year }}/hex">{{ election.year }} Hex</a>
-        </li>
-      {% elif election.map %}
-        <li><a href="/uk/elections/{{ election.year }}/map">{{ election.year }} Map</a></li>
-      {% elif election.hex %}
-        <li><a href="/uk/elections/{{ election.year }}/hex">{{ election.year }} Hex</a></li>
-      {% else %}
-        <li><a href="/uk/elections/{{ election.year }}/results">{{ election.year }} Results</a></li>
+        {% elif election.map %}
+          <a href="/uk/elections/{{ election.year }}/map">{{ election.year }} Map</a>
+        {% elif election.hex %}
+          <a href="/uk/elections/{{ election.year }}/hex">{{ election.year }} Hex</a>
+        {% else %}
+          <a href="/uk/elections/{{ election.year }}/results">{{ election.year }} Results</a>
       {% endif %}
+      </li>
     {% endfor %}
   </ul>
 
@@ -49,6 +53,27 @@
     {% if election.hex %}
       <p><a href="/uk/elections/{{ election.year }}/hex">Switch to {{ election.year }} Election Hex</a></p>
     {% endif %}
+    {% if selected_party %}
+      <p><a href="/uk/elections/{{ election.year }}/map">&#8592; Back to Winning Party Map</a></p>
+      <p>
+        <b>Party vote share:</b>
+        <select onchange="window.location='/uk/elections/{{ election.year }}/map?party='+this.value">
+          {% for party in main_parties %}
+            <option value="{{ party.pk }}" {% if party == selected_party %}selected{% endif %}>{{ party.name }}</option>
+          {% endfor %}
+        </select>
+      </p>
+    {% elif main_parties %}
+      <p>
+        <b>Party vote share:</b>
+        <select onchange="window.location='/uk/elections/{{ election.year }}/map?party='+this.value">
+          <option value="" disabled selected>Select a party…</option>
+          {% for party in main_parties %}
+            <option value="{{ party.pk }}">{{ party.name }}</option>
+          {% endfor %}
+        </select>
+      </p>
+    {% endif %}
   {% elif pageview == 'hex' %}
     {% if last and next %}
       <p><a href="/uk/elections/{{ last.year }}/hex">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/hex">Next Election</a></p>
@@ -60,6 +85,27 @@
     {% if election.map %}
        <p><a href="/uk/elections/{{ election.year }}/map">Switch to {{ election.year }} Election Map</a></p>
     {% endif %}
+    {% if selected_party %}
+      <p><a href="/uk/elections/{{ election.year }}/hex">&#8592; Back to Winning Party Map</a></p>
+      <p>
+        <b>Party vote share:</b>
+        <select onchange="window.location='/uk/elections/{{ election.year }}/hex?party='+this.value">
+          {% for party in main_parties %}
+            <option value="{{ party.pk }}" {% if party == selected_party %}selected{% endif %}>{{ party.name }}</option>
+          {% endfor %}
+        </select>
+      </p>
+    {% elif main_parties %}
+      <p>
+        <b>Party vote share:</b>
+        <select onchange="window.location='/uk/elections/{{ election.year }}/hex?party='+this.value">
+          <option value="" disabled selected>Select a party…</option>
+          {% for party in main_parties %}
+            <option value="{{ party.pk }}">{{ party.name }}</option>
+          {% endfor %}
+        </select>
+      </p>
+    {% endif %}
   {% else %}
     {% if last and next %}
       <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
@@ -70,12 +116,69 @@
     {% endif %}
   {% endif %}
 
-  {% if pageview == 'map' %}
-    {{div| safe}}
-    {{script| safe}}
-  {% elif pageview == 'hex' %}
-    {{div| safe}}
-    {{script| safe}}
+  {% if pageview == 'map' or pageview == 'hex' %}
+    <div style="display:flex;align-items:flex-start;gap:12px;">
+      <div style="flex:1;min-width:0;">
+        {{div| safe}}
+        {{script| safe}}
+      </div>
+      <div style="width:340px;flex-shrink:0;position:sticky;top:20px;">
+        {% if uni_results %}
+        <div style="border:1px solid #dde3ea;border-radius:4px;padding:10px 14px;margin-bottom:8px;">
+          <p style="margin:0 0 6px 0;font-size:0.9em;color:#444;letter-spacing:0.02em;font-weight:bold;">UNIVERSITY CONSTITUENCIES</p>
+          {% for uni in uni_results %}
+          <div data-uni-item="1"
+               data-name="{{ uni.name }}"
+               data-results="{{ uni.results_json }}"
+               data-year="{{ election.year }}"
+               style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #eee;">
+            {% for colour in uni.elected_colours %}
+            <span style="background:{{ colour }};display:inline-block;width:14px;height:14px;border:1px solid #888;flex-shrink:0;"></span>
+            {% endfor %}
+            <span style="font-size:0.9em;">{{ uni.name }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div id="map-results" style="padding:20px 16px;color:#6a7480;font-style:italic;border:1px solid #dde3ea;border-radius:4px;">
+          Click a constituency to see results.
+        </div>
+      </div>
+    </div>
+    <script>
+    document.addEventListener('click', function(e) {
+      const item = e.target.closest('[data-uni-item]');
+      if (!item) return;
+      const name = item.getAttribute('data-name');
+      const res = JSON.parse(item.getAttribute('data-results'));
+      const year = item.getAttribute('data-year');
+      const panel = document.getElementById('map-results');
+      if (!panel) return;
+      const seats = Object.values(res['Elected']).filter(e => e).length;
+      let html = "<style>table{font-family:arial,sans-serif;border-collapse:collapse;width:60%;}";
+      html += "td{border:0.5px solid #000;text-align:left;padding:1px 5px;}";
+      html += "th{border:0.5px solid #000;text-align:center;padding:1px 5px;}</style>";
+      html += "<h2>" + name + "</h2><h3>" + year + " General Election Results</h3><br>";
+      html += "<b>Winning Party:</b> " + res['Party'][0] + "<br><br>";
+      if (seats > 1) html += "<p><em>" + seats + "-seat constituency</em></p>";
+      html += "<table><tr><th style='width:1px;'> </th><th>Party</th><th>Candidate</th>";
+      html += "<th style='width:60px;'>Votes</th><th style='width:60px;'>Percent</th></tr>";
+      const pl = res['Party'];
+      for (let i = 0; i < Object.keys(pl).length; i++) {
+        html += "<tr><td style='width:1px;background-color:" + res['Party Colour'][i] + ";'> </td>";
+        html += "<td>" + res['Party'][i] + "</td><td>" + res['Candidate'][i] + "</td>";
+        if (res['Votes'][i] === null) {
+          html += "<td colspan='2' style='text-align:center;font-style:italic;'>Unopposed</td>";
+        } else {
+          html += "<td style='width:60px;'>" + res['Votes'][i] + "</td>";
+          html += "<td style='width:60px;'>" + res['Percent'][i] + "</td>";
+        }
+        html += "</tr>";
+      }
+      html += "</table><br><p><a href='/uk/constituencies/" + name + "'>Constituency Page</a>";
+      panel.innerHTML = html;
+    });
+    </script>
   {% endif %}
 
   <table id="table">
@@ -84,6 +187,72 @@
       <tr><td style="background-color:{{ row.2 }};">  </td><td>{{ row.0 }}</td><td>{{ row.1 }}</td></tr>
     {% endfor %}
   </table>
+
+  {% if const_results %}
+    <h3>Elected MPs</h3>
+    <table id="mp-table">
+      <thead>
+        <tr>
+          <th onclick="sortMpTable(0, false)" class="sortable">Constituency</th>
+          <th colspan="2" onclick="sortMpTable(2, false)" class="sortable">Party</th>
+          <th onclick="sortMpTable(3, false)" class="sortable">Candidate</th>
+          <th onclick="sortMpTable(4, true)" class="sortable">Votes</th>
+          <th onclick="sortMpTable(5, true)" class="sortable">Vote Share</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in const_results %}
+          <tr>
+            <td><a href="/uk/constituencies/{{ row.Constituency }}">{{ row.Constituency }}</a></td>
+            <td style="background-color:{{ row.Colour }};">  </td>
+            <td>{{ row.Party }}</td>
+            <td>{{ row.Candidate }}</td>
+            <td>{{ row.Votes }}</td>
+            <td>{{ row.Percent }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <style>
+      #mp-table th.sortable { cursor: pointer; user-select: none; }
+      #mp-table th.sortable:hover { background-color: #d0d0d0; }
+      #mp-table th.sort-asc::after { content: " ▲"; }
+      #mp-table th.sort-desc::after { content: " ▼"; }
+    </style>
+    <script>
+      (function () {
+        var sortCol = -1, sortAsc = true;
+        window.sortMpTable = function (colIdx, isNumeric) {
+          var table = document.getElementById('mp-table');
+          var tbody = table.tBodies[0];
+          var rows = Array.from(tbody.rows);
+          var asc = (sortCol === colIdx) ? !sortAsc : true;
+          rows.sort(function (a, b) {
+            var av = a.cells[colIdx] ? a.cells[colIdx].innerText.trim() : '';
+            var bv = b.cells[colIdx] ? b.cells[colIdx].innerText.trim() : '';
+            if (isNumeric) {
+              var an = parseFloat(av), bn = parseFloat(bv);
+              if (isNaN(an)) an = asc ? Infinity : -Infinity;
+              if (isNaN(bn)) bn = asc ? Infinity : -Infinity;
+              return asc ? an - bn : bn - an;
+            }
+            return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+          });
+          rows.forEach(function (r) { tbody.appendChild(r); });
+          sortCol = colIdx; sortAsc = asc;
+          var ths = table.tHead.rows[0].cells;
+          for (var i = 0; i < ths.length; i++) {
+            ths[i].classList.remove('sort-asc', 'sort-desc');
+          }
+          // header cell indices with colspan: 0=Constituency, 1=Party(span2), 2=Candidate, 3=Votes, 4=VoteShare
+          var headerColMap = {0:0, 2:1, 3:2, 4:3, 5:4};
+          if (headerColMap[colIdx] !== undefined) {
+            ths[headerColMap[colIdx]].classList.add(asc ? 'sort-asc' : 'sort-desc');
+          }
+        };
+      })();
+    </script>
+  {% endif %}
 
 {% endif %}
 

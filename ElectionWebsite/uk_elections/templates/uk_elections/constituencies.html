@@ -7,6 +7,7 @@
   <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
   <li class="nav"><a class="nav active" href="/uk/constituencies/home">Constituencies</a></li>
   <li class="nav"><a class="nav" href="/uk/counties/home">Counties</a></li>
+  <li class="nav"><a class="nav" href="/uk/boundaries">Boundary Changes</a></li>
 {% endblock submenubar %}
 
 {% block content %}
@@ -29,8 +30,8 @@
 {% else %}
 
   <h2>{{ consts.0.name }}</h2>
-  <p><b>Modern County:</b> {% for county in consts.0.modern_county.all %} {{ county.name }}{% if not forloop.last %}, {% endif %} {% endfor %}</p>
-  <p><b>Historic County:</b> {% for county in consts.0.historic_county.all %} {{ county.name }}{% if not forloop.last %}, {% endif %} {% endfor %}</p>
+  <p><b>Modern County:</b> {% for county in consts.0.modern_county.all %} <a href="/uk/counties/{{ county.name }}">{{ county.name }}</a>{% if not forloop.last %}, {% endif %} {% endfor %}</p>
+  <p><b>Historic County:</b> {% for county in consts.0.historic_county.all %} <a href="/uk/counties/{{ county.name }}">{{ county.name }}</a>{% if not forloop.last %}, {% endif %} {% endfor %}</p>
 
   <h3>Period(s) of Existence</h3>
   {% for const in consts %}
@@ -46,6 +47,12 @@
       <p>Successors: {% for s in const.successors.all %}<a href="{{ s.name }}">{{ s.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
     {% endif %}
   {% endfor %}
+
+  {% if vs_div %}
+    <h3>Vote Share History</h3>
+    {{ vs_div|safe }}
+    {{ vs_script|safe }}
+  {% endif %}
 
   <h2>Election Results</h2>
   {% for result in results %}

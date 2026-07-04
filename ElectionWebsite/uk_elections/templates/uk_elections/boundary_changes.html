@@ -1,0 +1,99 @@
+{% extends "uk_elections/ukhome.html" %}
+
+{% block title %}Boundary Changes{% endblock title %}
+
+{% block submenubar %}
+  <li class="nav"><a class="nav" href="/uk">UK Home</a></li>
+  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
+  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
+  <li class="nav"><a class="nav" href="/uk/counties/home">Counties</a></li>
+  <li class="nav"><a class="nav active" href="/uk/boundaries">Boundary Changes</a></li>
+{% endblock submenubar %}
+
+{% block content %}
+
+<h2>Boundary Changes</h2>
+
+<style>
+  .bc-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-bottom: 2px solid #ccc;
+    padding-bottom: 0;
+  }
+  .bc-tab {
+    padding: 6px 12px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-bottom: none;
+    background: #f5f5f5;
+    border-radius: 4px 4px 0 0;
+    font-size: 0.9em;
+    user-select: none;
+  }
+  .bc-tab:hover { background: #e0e0e0; }
+  .bc-tab.active { background: #fff; border-bottom: 2px solid #fff; margin-bottom: -2px; font-weight: bold; }
+  .bc-panel { display: none; }
+  .bc-panel.active { display: block; }
+  .bc-columns {
+    display: flex;
+    gap: 40px;
+    align-items: flex-start;
+  }
+  .bc-col { flex: 1; min-width: 0; }
+  .bc-col h4 { margin-top: 0; }
+</style>
+
+<div class="bc-tabs">
+  {% for entry in changes %}
+    <div class="bc-tab {% if forloop.first %}active{% endif %}"
+         onclick="showTab('panel-{{ entry.election.date|date:'Y' }}-{{ forloop.counter }}', this)">
+      {{ entry.election.date|date:"Y" }}
+    </div>
+  {% endfor %}
+</div>
+
+{% for entry in changes %}
+  <div class="bc-panel {% if forloop.first %}active{% endif %}"
+       id="panel-{{ entry.election.date|date:'Y' }}-{{ forloop.counter }}">
+    <div class="bc-columns">
+      <div class="bc-col">
+        <h4>Created ({{ entry.created|length }})</h4>
+        {% if entry.created %}
+          <ul>
+            {% for c in entry.created %}
+              <li><a href="/uk/constituencies/{{ c.name }}">{{ c.name }}</a></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>None</p>
+        {% endif %}
+      </div>
+      <div class="bc-col">
+        <h4>Abolished ({{ entry.abolished|length }})</h4>
+        {% if entry.abolished %}
+          <ul>
+            {% for c in entry.abolished %}
+              <li><a href="/uk/constituencies/{{ c.name }}">{{ c.name }}</a></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>None</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endfor %}
+
+<script>
+  function showTab(panelId, tabEl) {
+    document.querySelectorAll('.bc-panel').forEach(function(p) { p.classList.remove('active'); });
+    document.querySelectorAll('.bc-tab').forEach(function(t) { t.classList.remove('active'); });
+    document.getElementById(panelId).classList.add('active');
+    tabEl.classList.add('active');
+  }
+</script>
+
+{% endblock content %}

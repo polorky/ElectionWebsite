@@ -14,5 +14,6 @@ urlpatterns = [
     path('validate/', views.validate_election_select, name='validate_election_select'),
     path('validate/<int:election_id>/', views.validate_election, name='validate_election'),
     path('validate/<int:election_id>/<int:constituency_id>/', views.validate_constituency, name='validate_constituency'),
+    path('boundaries', views.boundaryChangesView, name='boundaries'),
     path('', TemplateView.as_view(template_name="uk_elections/ukhome.html"), name='home'),
 ]
