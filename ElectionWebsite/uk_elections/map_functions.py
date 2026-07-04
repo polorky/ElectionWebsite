@@ -6,9 +6,10 @@ import numpy as np
 from collections import defaultdict
 from matplotlib.patches import RegularPolygon
 from django.db.models import Count
-from bokeh.models import TapTool, CustomJS, ColumnDataSource
+from bokeh.models import TapTool, CustomJS, ColumnDataSource, Toggle
 from bokeh.embed import components
 from bokeh.plotting import figure
+from bokeh.layouts import column
 import pickle, os, geojson, json
 from shapely.geometry import box, Polygon, MultiPolygon
 from shapely.validation import make_valid
@@ -39,7 +40,8 @@ class ElectionMap():
             p = self.create_figure(tooltips)
             patch_renderer = self.get_patch_renderer(p, cds)
             self.context['uni_results'] = get_university_results(election)
-            self.context['script'], self.context['div'] = wire_map_layout(p, patch_renderer, cds, election)
+            tile = getattr(self, '_tile_renderer', None)
+            self.context['script'], self.context['div'] = wire_map_layout(p, patch_renderer, cds, election, tile)
             self.context['selected_party'] = selected_party
 
     def get_adjacents(self):
@@ -129,7 +131,7 @@ class ElectionMap():
                        tools=tools, tooltips=tooltips,
                        sizing_mode="stretch_width", aspect_ratio=0.6)
             
-            p.add_tile('OpenStreetMap Mapnik')
+            self._tile_renderer = p.add_tile('OpenStreetMap Mapnik')
 
         elif self.map_type == 'map':
 
@@ -378,13 +380,19 @@ def build_pcts_and_tooltips(names, pct_map, selected_party):
     )
     return pcts, tooltips
 
-def wire_map_layout(p, patch_renderer, cds, election):
+def wire_map_layout(p, patch_renderer, cds, election, tile_renderer=None):
     """Adds TapTool + click callback, returns (script, div)."""
     p.add_tools(TapTool(renderers=[patch_renderer]))
     cds.selected.js_on_change('indices', CustomJS(
         args=dict(cds=cds, election=election),
         code=BOKEH_DISPLAY_TEXT,
     ))
+    if tile_renderer is not None:
+        toggle = Toggle(label="Hide base map", button_type="light", active=False, width=140)
+        toggle.js_on_click(CustomJS(args=dict(tile=tile_renderer), code="""
+            tile.visible = !cb_obj.active;
+        """))
+        return components(column(toggle, p, sizing_mode="stretch_width"))
     return components(p)
 
 def _xs_ys_to_shapely(x, y):
