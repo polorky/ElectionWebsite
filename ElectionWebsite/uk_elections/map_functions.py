@@ -28,10 +28,10 @@ class ElectionMap():
         self.get_adjacents()
         self.get_overall_results()
         if map_type != 'results':
-            self.context['pageview'] = 'hex' if map_type == 'hex' else 'map'
+            self.context['pageview'] = 'hex' if map_type == 'hex' else ('gj' if map_type == 'gj' else 'map')
             names, xs, ys = self.get_base_data()
             results = get_results(names, election)
-            selected_party, colours, split_colours, pct_map = resolve_party_mode(names, results, self.electionObj, request.GET.get('party'))
+            selected_party, colours, split_colours, pct_map = resolve_party_mode(names, results, self.electionObj, request.GET.get('party'), is_hex=(self.map_type == 'hex'))
             line_colours = ['black'] * len(names)
             if self.map_type == 'gj':
                 names, xs, ys, colours, line_colours, results = expand_split_seats(names, xs, ys, colours, split_colours, results)
@@ -341,14 +341,23 @@ def get_main_parties(electionObj):
         .order_by('-n')
     )
 
-def get_winner_colours(results):
-    """Returns (fill_colours, split_colours) where split_colours is None for single-winner
-    constituencies and the second party's colour for split two-member seats."""
+def get_winner_colours(results, names=None):
+    """Returns (fill_colours, split_colours).
+    If names is provided (hex mode), assigns unique[N] to the Nth occurrence of each name
+    so that split multi-seat hex pairs show different party colours."""
     fill_colours, split_colours = [], []
-    for r in results:
+    name_count = {} if names is not None else None
+    for i, r in enumerate(results):
         elected_colours = [c for c, e in zip(r['Party Colour'], r['Elected']) if e]
         unique = list(dict.fromkeys(elected_colours))
-        if len(unique) >= 2:
+        if name_count is not None:
+            name = names[i]
+            occ = name_count.get(name, 0)
+            name_count[name] = occ + 1
+            idx = min(occ, len(unique) - 1) if unique else 0
+            fill_colours.append(unique[idx] if unique else '#cccccc')
+            split_colours.append(unique[1] if len(unique) >= 2 and occ == 0 else None)
+        elif len(unique) >= 2:
             fill_colours.append(unique[0])
             split_colours.append(unique[1])
         else:
@@ -356,9 +365,9 @@ def get_winner_colours(results):
             split_colours.append(None)
     return fill_colours, split_colours
 
-def resolve_party_mode(names, results, electionObj, party_pk):
+def resolve_party_mode(names, results, electionObj, party_pk, is_hex=False):
     """Returns (selected_party, colours, split_colours, pct_map).
-    split_colours is None per entry for single-winner seats, second party colour for splits."""
+    is_hex=True assigns unique[N] colours to the Nth hex of a multi-seat constituency."""
     selected_party = None
     pct_map = {}
     if party_pk:
@@ -367,9 +376,9 @@ def resolve_party_mode(names, results, electionObj, party_pk):
             colours, pct_map = get_party_vote_colours(names, electionObj, selected_party)
             split_colours = [None] * len(colours)
         except Party.DoesNotExist:
-            colours, split_colours = get_winner_colours(results)
+            colours, split_colours = get_winner_colours(results, names if is_hex else None)
     else:
-        colours, split_colours = get_winner_colours(results)
+        colours, split_colours = get_winner_colours(results, names if is_hex else None)
     return selected_party, colours, split_colours, pct_map
 
 def build_pcts_and_tooltips(names, pct_map, selected_party):
@@ -464,6 +473,16 @@ def expand_split_seats(names, xs, ys, colours, split_colours, results):
 
     return new_names, new_xs, new_ys, new_colours, new_line_colours, new_results
 
+def _rings_to_xy(rings):
+    """Convert a list of GeoJSON rings (outer + holes) to ([x_lists], [y_lists])."""
+    rings_x, rings_y = [], []
+    for ring in rings:
+        coords = [wgs84_to_webmercator(lon, lat) for lon, lat in ring]
+        rings_x.append([c[0] for c in coords])
+        rings_y.append([c[1] for c in coords])
+    return rings_x, rings_y
+
+
 def process_geojson(gj):
 
     names, xs, ys = [], [], []
@@ -473,17 +492,15 @@ def process_geojson(gj):
         names.append(GEOJSON_NAME_MAP.get(raw_name, raw_name))
         geom = feature['geometry']
         if geom['type'] == 'Polygon':
-            ring = geom['coordinates'][0]
-            coords = [wgs84_to_webmercator(lon, lat) for lon, lat in ring]
-            xs.append([[[c[0] for c in coords]]])
-            ys.append([[[c[1] for c in coords]]])
+            rings_x, rings_y = _rings_to_xy(geom['coordinates'])
+            xs.append([rings_x])
+            ys.append([rings_y])
         elif geom['type'] == 'MultiPolygon':
             feat_xs, feat_ys = [], []
             for polygon in geom['coordinates']:
-                ring = polygon[0]
-                coords = [wgs84_to_webmercator(lon, lat) for lon, lat in ring]
-                feat_xs.append([[c[0] for c in coords]])
-                feat_ys.append([[c[1] for c in coords]])
+                rings_x, rings_y = _rings_to_xy(polygon)
+                feat_xs.append(rings_x)
+                feat_ys.append(rings_y)
             xs.append(feat_xs)
             ys.append(feat_ys)
         elif geom['type'] == 'GeometryCollection':
@@ -491,16 +508,14 @@ def process_geojson(gj):
             feat_xs, feat_ys = [], []
             for part in geom['geometries']:
                 if part['type'] == 'Polygon':
-                    ring = part['coordinates'][0]
-                    coords = [wgs84_to_webmercator(lon, lat) for lon, lat in ring]
-                    feat_xs.append([[c[0] for c in coords]])
-                    feat_ys.append([[c[1] for c in coords]])
+                    rings_x, rings_y = _rings_to_xy(part['coordinates'])
+                    feat_xs.append(rings_x)
+                    feat_ys.append(rings_y)
                 elif part['type'] == 'MultiPolygon':
                     for polygon in part['coordinates']:
-                        ring = polygon[0]
-                        coords = [wgs84_to_webmercator(lon, lat) for lon, lat in ring]
-                        feat_xs.append([[c[0] for c in coords]])
-                        feat_ys.append([[c[1] for c in coords]])
+                        rings_x, rings_y = _rings_to_xy(polygon)
+                        feat_xs.append(rings_x)
+                        feat_ys.append(rings_y)
             xs.append(feat_xs)
             ys.append(feat_ys)
 

@@ -20,9 +20,9 @@
     {% for election in elections %}
       <li>
         {% if election.gj %}
-          <a href="/uk/elections/{{ election.year }}/gj">{{ election.year }} Geographical Map</a> -
-        {% endif %}
-        {% if election.map and election.hex %}
+          <a href="/uk/elections/{{ election.year }}/gj">{{ election.year }} Geographical Map</a>
+          {% if election.hex %} - <a href="/uk/elections/{{ election.year }}/hex">{{ election.year }} Hex</a>{% endif %}
+        {% elif election.map and election.hex %}
           <a href="/uk/elections/{{ election.year }}/map">{{ election.year }} Map</a> -
           <a href="/uk/elections/{{ election.year }}/hex">{{ election.year }} Hex</a>
         {% elif election.map %}
@@ -31,7 +31,7 @@
           <a href="/uk/elections/{{ election.year }}/hex">{{ election.year }} Hex</a>
         {% else %}
           <a href="/uk/elections/{{ election.year }}/results">{{ election.year }} Results</a>
-      {% endif %}
+        {% endif %}
       </li>
     {% endfor %}
   </ul>
@@ -106,6 +106,35 @@
         </select>
       </p>
     {% endif %}
+  {% elif pageview == 'gj' %}
+    {% if last and next %}
+      <p><a href="/uk/elections/{{ last.year }}/gj">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/gj">Next Election</a></p>
+    {% elif last %}
+      <p><a href="/uk/elections/{{ last.year }}/gj">Previous Election</a></p>
+    {% else %}
+      <p><a href="/uk/elections/{{ next.year }}/gj">Next Election</a></p>
+    {% endif %}
+    {% if selected_party %}
+      <p><a href="/uk/elections/{{ election.year }}/gj">&#8592; Back to Winning Party Map</a></p>
+      <p>
+        <b>Party vote share:</b>
+        <select onchange="window.location='/uk/elections/{{ election.year }}/gj?party='+this.value">
+          {% for party in main_parties %}
+            <option value="{{ party.pk }}" {% if party == selected_party %}selected{% endif %}>{{ party.name }}</option>
+          {% endfor %}
+        </select>
+      </p>
+    {% elif main_parties %}
+      <p>
+        <b>Party vote share:</b>
+        <select onchange="window.location='/uk/elections/{{ election.year }}/gj?party='+this.value">
+          <option value="" disabled selected>Select a party…</option>
+          {% for party in main_parties %}
+            <option value="{{ party.pk }}">{{ party.name }}</option>
+          {% endfor %}
+        </select>
+      </p>
+    {% endif %}
   {% else %}
     {% if last and next %}
       <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
@@ -116,7 +145,7 @@
     {% endif %}
   {% endif %}
 
-  {% if pageview == 'map' or pageview == 'hex' %}
+  {% if pageview == 'map' or pageview == 'hex' or pageview == 'gj' %}
     <div style="display:flex;align-items:flex-start;gap:12px;">
       <div style="flex:1;min-width:0;">
         {{div| safe}}
