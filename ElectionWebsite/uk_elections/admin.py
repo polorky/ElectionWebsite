@@ -34,8 +34,8 @@ class ConstituencyAdminForm(forms.ModelForm):
             self.fields['predecessors'].queryset = Constituency.objects.filter(end_date__isnull=False)
 
 class ConstituencyAdmin(admin.ModelAdmin):
-    list_display = ('name','api_names','formatted_start_date','formatted_end_date','seats','get_predecessors_display')
-    list_filter = ['name']
+    list_display = ('name','api_names','formatted_start_date','formatted_end_date','seats','get_predecessors_display','get_modern_county_display')
+    list_filter = ['name', 'modern_county']
     #form = ConstituencyAdminForm
     #filter_horizontal = ['predecessors']
     
@@ -50,6 +50,13 @@ class ConstituencyAdmin(admin.ModelAdmin):
         return obj.end_date.strftime('%Y/%m/%d') if obj.end_date else "Present"
     formatted_end_date.short_description = 'End Date'
     formatted_end_date.admin_order_field = 'end_date' 
+
+    def get_modern_county_display(self, obj):
+        counties = obj.modern_county.all()
+        if counties:
+            return ", ".join([c.name for c in counties])
+        return "-"
+    get_modern_county_display.short_description = 'Modern County'
 
     def get_predecessors_display(self, obj):
         """Show predecessors in list view"""

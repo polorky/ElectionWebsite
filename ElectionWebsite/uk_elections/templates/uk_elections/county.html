@@ -16,11 +16,14 @@
 
   <h2>UK Counties</h2>
 
-  <ul>
-    {% for county in counties %}
-      <li><a href="/uk/counties/{{ county }}">{{ county }}</a></li>
+  {% for country, names in counties_by_country.items %}
+  <h3>{{ country }}</h3>
+  <ul style="column-count:3;column-gap:24px;list-style:none;margin:0 0 20px 0;padding:0;">
+    {% for name in names %}
+    <li style="margin-bottom:3px;break-inside:avoid;"><a href="/uk/counties/{{ name }}">{{ name }}</a></li>
     {% endfor %}
   </ul>
+  {% endfor %}
 
 {% elif pageview == 'nocounty' %}
 

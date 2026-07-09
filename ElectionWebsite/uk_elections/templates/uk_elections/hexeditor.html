@@ -1,0 +1,617 @@
+{% extends "base.html" %}
+{% block title %}Hex Map Editor{% endblock %}
+
+{% block content %}
+<style>
+  /* override section to fill viewport */
+  body > section { padding: 0; overflow: hidden; }
+
+  #editor { display: flex; flex-direction: column; height: calc(100vh - 52px); }
+
+  /* ── top bar ─────────────────────────────────────────────────────────── */
+  #topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 12px; background: #f5f5f5; border-bottom: 1px solid #ddd;
+    flex-shrink: 0; flex-wrap: wrap;
+  }
+  #topbar label { font-size: 13px; }
+  #topbar select, #topbar input[type=text] {
+    font-size: 13px; padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px;
+  }
+  #topbar button {
+    font-size: 13px; padding: 4px 12px; border: 1px solid #bbb; border-radius: 3px;
+    cursor: pointer; background: #fff; color: #333;
+  }
+  #topbar button:hover { background: #e8e8e8; box-shadow: none; }
+  #save-btn { background: #1976d2; color: #fff; border-color: #1565c0; }
+  #save-btn:hover { background: #1565c0; }
+  #continue-btn { background: #e8f5e9 !important; color: #1b5e20 !important; border-color: #81c784 !important; }
+  #continue-btn:hover { background: #c8e6c9 !important; }
+  #topbar-status { font-size: 12px; color: #555; margin-left: 8px; }
+
+  /* ── main split ──────────────────────────────────────────────────────── */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── sidebar ─────────────────────────────────────────────────────────── */
+  #sidebar {
+    width: 220px; flex-shrink: 0; display: flex; flex-direction: column;
+    border-right: 1px solid #ddd; background: #fafafa; overflow: hidden;
+  }
+  #sidebar-header { padding: 8px; border-bottom: 1px solid #eee; flex-shrink: 0; }
+  #sidebar-header h4 { margin: 0 0 6px; font-size: 13px; }
+  #search-input {
+    width: 100%; box-sizing: border-box; padding: 4px 6px;
+    font-size: 12px; border: 1px solid #ccc; border-radius: 3px;
+  }
+  #unplaced-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .const-item {
+    padding: 5px 10px; font-size: 12px; cursor: pointer; border-radius: 3px;
+    margin: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .const-item:hover { background: #e3f2fd; }
+  .const-item.selected { background: #fff176; font-weight: bold; }
+  .const-item .seats-badge {
+    display: inline-block; background: #888; color: #fff;
+    border-radius: 9px; font-size: 10px; padding: 0 5px; margin-left: 4px;
+  }
+  #sidebar-footer {
+    padding: 6px 8px; border-top: 1px solid #eee; font-size: 11px; color: #777; flex-shrink: 0;
+  }
+
+  /* ── grid container ──────────────────────────────────────────────────── */
+  #grid-container {
+    flex: 1; overflow: hidden; position: relative; background: #f9f9f9;
+    cursor: default;
+  }
+  #hexgrid { width: 100%; height: 100%; display: block; }
+  #hexgrid.placing { cursor: crosshair; }
+
+  /* ── tooltip ─────────────────────────────────────────────────────────── */
+  #hextip {
+    position: absolute; pointer-events: none; background: rgba(0,0,0,0.75);
+    color: #fff; font-size: 11px; padding: 3px 7px; border-radius: 3px;
+    display: none; white-space: nowrap; z-index: 10;
+  }
+
+  /* ── legend ──────────────────────────────────────────────────────────── */
+  #legend {
+    position: absolute; bottom: 8px; right: 8px; background: rgba(255,255,255,0.9);
+    border: 1px solid #ccc; border-radius: 4px; padding: 6px 10px; font-size: 11px;
+  }
+  .leg-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  .leg-swatch { width: 14px; height: 14px; border: 1px solid #999; border-radius: 2px; flex-shrink: 0; }
+</style>
+
+<div id="editor">
+
+  <!-- ── top bar ────────────────────────────────────────────────────────── -->
+  <div id="topbar">
+    <label>Base:
+      <select id="base-select">
+        <option value="">-- select --</option>
+        {% for y in available_years %}
+          <option value="{{ y }}" {% if y == base_year %}selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Target year:
+      <input type="text" id="target-input" value="{{ target_year }}" placeholder="e.g. 1945" style="width:70px;">
+    </label>
+    <button id="load-btn">Load</button>
+    {% if has_saved == 'true' and not load_saved %}
+    <button id="continue-btn" title="Reload with previously saved placements">Continue saved</button>
+    {% endif %}
+    <button id="clear-btn" title="Clear all target placements">Clear all</button>
+    <button id="save-btn">Save</button>
+    <span id="topbar-status"></span>
+  </div>
+
+  <!-- ── main area ──────────────────────────────────────────────────────── -->
+  <div id="main">
+
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <h4>Unplaced: <span id="unplaced-count">0</span></h4>
+        <input id="search-input" type="text" placeholder="Search…">
+      </div>
+      <div id="unplaced-list"></div>
+      <div id="sidebar-footer">
+        Click item → select<br>
+        Click hex → place / move<br>
+        Right-click hex → unplace
+      </div>
+    </div>
+
+    <div id="grid-container">
+      <svg id="hexgrid">
+        <g id="grid-group"></g>
+      </svg>
+      <div id="hextip"></div>
+      <div id="legend">
+        <div class="leg-row"><div class="leg-swatch" style="background:hsl(100,55%,72%);border-color:hsl(100,55%,42%);"></div> Placed (county colour)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#e8e8e8;border-color:#bbb;"></div> <em>Ghost</em> (base only, not in target)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#e8e8e8;border-color:#aaa;"></div> Empty base position</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#fff;border-style:dashed;"></div> Buffer (overflow)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#e9f5eb;border-color:#81c784;"></div> Ireland block</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#fff176;border:2px solid #f57f17;"></div> Selected</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ── constants ─────────────────────────────────────────────────────────── */
+const SCALE  = 28;
+const HEX_R  = SCALE * 2 / 3;
+const SQ3    = Math.sqrt(3);
+const NEIGHBORS = [[1,-1,0],[-1,1,0],[1,0,-1],[-1,0,1],[0,1,-1],[0,-1,1]];
+
+/* ── state ─────────────────────────────────────────────────────────────── */
+let basePositions     = {};   // posKey → baseName (all base positions)
+let baseOnlyPositions = {};   // posKey → baseName (base-only ghosts, not in target)
+let bufferSet         = new Set();
+let uniSet            = new Set();
+let irelandSet        = new Set();
+let allPositions      = new Set();
+let targetConsts      = [];
+let seatCounts        = {};
+let constCounties     = {};   // name → county string
+let targetYear        = '';
+
+let placement      = {};   // name → [posKey, ...]   (current target layout)
+let occupiedMap    = {};   // posKey → {name, slot}
+let selected       = null; // constituency name currently "in hand"
+
+/* ── county colour ───────────────────────────────────────────────────────── */
+const _countyColorCache = {};
+function countyColor(county) {
+  if (!county) return '#d0d0d0';
+  if (_countyColorCache[county]) return _countyColorCache[county];
+  let h = 5381;
+  for (let i = 0; i < county.length; i++) h = ((h << 5) + h) ^ county.charCodeAt(i);
+  const hue = Math.abs(h) % 360;
+  const col = `hsl(${hue},55%,72%)`;
+  _countyColorCache[county] = col;
+  return col;
+}
+function darkenCounty(county) {
+  if (!county) return '#999';
+  let h = 5381;
+  for (let i = 0; i < county.length; i++) h = ((h << 5) + h) ^ county.charCodeAt(i);
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue},55%,42%)`;
+}
+
+/* ── helpers ────────────────────────────────────────────────────────────── */
+function hexCenter(posKey) {
+  const [x,y,z] = posKey.split(',').map(Number);
+  return { cx: x * SCALE,  cy: -SQ3 * (2*y + x) / 3 * SCALE };
+}
+
+function hexPoints(cx, cy) {
+  const pts = [];
+  for (let k = 0; k < 6; k++) {
+    const a = k * Math.PI / 3;
+    pts.push((cx + HEX_R * Math.cos(a)).toFixed(2) + ',' +
+             (cy - HEX_R * Math.sin(a)).toFixed(2));
+  }
+  return pts.join(' ');
+}
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+/* ── rebuild derived maps ───────────────────────────────────────────────── */
+function recomputeOccupied() {
+  occupiedMap = {};
+  for (const [name, positions] of Object.entries(placement)) {
+    positions.forEach((pos, slot) => { occupiedMap[pos] = {name, slot}; });
+  }
+}
+
+function unplacedList() {
+  return targetConsts.filter(name => {
+    const needed = seatCounts[name] || 1;
+    const placed = (placement[name] || []).length;
+    return placed < needed;
+  });
+}
+
+/* ── render grid ────────────────────────────────────────────────────────── */
+function renderGrid() {
+  const g = document.getElementById('grid-group');
+  g.innerHTML = '';
+
+  for (const posKey of allPositions) {
+    const {cx, cy} = hexCenter(posKey);
+    const isBase    = posKey in basePositions;
+    const isGhost   = posKey in baseOnlyPositions;
+    const isUni     = uniSet.has(posKey);
+    const isIreland = irelandSet.has(posKey);
+    const occ      = occupiedMap[posKey];
+    const isSel    = occ && occ.name === selected;
+
+    let fill, stroke, strokeW, dashArray;
+    dashArray = '';
+
+    if (occ) {
+      const county = constCounties[occ.name] || '';
+      fill    = isSel ? '#fff176' : countyColor(county);
+      stroke  = isSel ? '#f57f17' : darkenCounty(county);
+      strokeW = isSel ? 2.5 : 0.8;
+    } else if (isGhost) {
+      fill    = selected ? '#e8f5e9' : '#e8e8e8';
+      stroke  = '#bbb';
+      strokeW = 0.8;
+    } else if (isUni) {
+      fill    = selected ? '#dbeafe' : '#e3f2fd';
+      stroke  = '#90caf9';
+      strokeW = 0.8;
+    } else if (irelandSet.has(posKey)) {
+      fill    = selected ? '#d4edda' : '#e9f5eb';
+      stroke  = '#81c784';
+      strokeW = 0.8;
+    } else if (isBase) {
+      fill    = selected ? '#e8f5e9' : '#e8e8e8';
+      stroke  = '#aaa';
+      strokeW = 0.8;
+    } else {
+      fill    = selected ? '#fafafa' : '#fff';
+      stroke  = '#ccc';
+      strokeW = 0.5;
+      dashArray = '3,3';
+    }
+
+    const poly = svgEl('polygon', {
+      points: hexPoints(cx, cy),
+      fill, stroke,
+      'stroke-width': strokeW,
+      'data-pos': posKey,
+    });
+    if (dashArray) poly.setAttribute('stroke-dasharray', dashArray);
+    g.appendChild(poly);
+
+    // label: placed target or ghost base name
+    if (occ) {
+      const label = occ.name.length > 14 ? occ.name.slice(0,13)+'…' : occ.name;
+      const county = constCounties[occ.name] || '';
+      const t = svgEl('text', {
+        x: cx, y: cy + 3,
+        'text-anchor': 'middle', 'font-size': '5.5',
+        fill: darkenCounty(county),
+        'pointer-events': 'none', style: 'user-select:none',
+      });
+      t.textContent = label;
+      g.appendChild(t);
+    } else if (isGhost) {
+      const ghostName = baseOnlyPositions[posKey];
+      const label = ghostName.length > 14 ? ghostName.slice(0,13)+'…' : ghostName;
+      const t = svgEl('text', {
+        x: cx, y: cy + 3,
+        'text-anchor': 'middle', 'font-size': '5.5',
+        fill: '#aaa',
+        'pointer-events': 'none', style: 'user-select:none;font-style:italic',
+      });
+      t.textContent = label;
+      g.appendChild(t);
+    }
+
+    // tooltip via title element
+    let tipText;
+    if (occ) {
+      const county = constCounties[occ.name] || '';
+      tipText = occ.name + (county ? ` — ${county}` : '') +
+                (seatCounts[occ.name] > 1 ? ` (seat ${occ.slot+1})` : '');
+    } else if (isGhost) {
+      tipText = `[${baseOnlyPositions[posKey]}] — base only`;
+    } else if (isBase) {
+      tipText = `[${basePositions[posKey]}] — available`;
+    } else {
+      tipText = `Buffer — ${posKey}`;
+    }
+    const title = svgEl('title', {});
+    title.textContent = tipText;
+    poly.appendChild(title);
+  }
+}
+
+/* ── render sidebar ─────────────────────────────────────────────────────── */
+function renderSidebar() {
+  const query   = document.getElementById('search-input').value.toLowerCase();
+  const ul      = document.getElementById('unplaced-list');
+  const counter = document.getElementById('unplaced-count');
+  const items   = unplacedList().slice().sort((a, b) => {
+    const ca = constCounties[a] || '';
+    const cb = constCounties[b] || '';
+    if (ca !== cb) return ca.localeCompare(cb);
+    return a.localeCompare(b);
+  });
+  counter.textContent = items.length;
+  ul.innerHTML = '';
+
+  let lastCounty = null;
+  for (const name of items) {
+    if (query && !name.toLowerCase().includes(query)) continue;
+    const needed  = seatCounts[name] || 1;
+    const placed  = (placement[name] || []).length;
+    const county  = constCounties[name] || '';
+
+    // County group header (skip when searching)
+    if (!query && county !== lastCounty) {
+      const hdr = document.createElement('div');
+      hdr.style.cssText = `padding:4px 8px 1px;font-size:10px;font-weight:bold;color:#555;
+        text-transform:uppercase;letter-spacing:0.5px;margin-top:${lastCounty === null ? 2 : 6}px;
+        border-left:3px solid ${countyColor(county)};`;
+      hdr.textContent = county || 'Unknown';
+      ul.appendChild(hdr);
+      lastCounty = county;
+    }
+
+    const li = document.createElement('div');
+    li.className = 'const-item' + (name === selected ? ' selected' : '');
+    li.title = county ? `${name} — ${county}` : name;
+    const swatch = document.createElement('span');
+    swatch.style.cssText = `display:inline-block;width:9px;height:9px;border-radius:2px;
+      background:${countyColor(county)};border:1px solid ${darkenCounty(county)};
+      margin-right:5px;flex-shrink:0;vertical-align:middle;`;
+    li.appendChild(swatch);
+    li.appendChild(document.createTextNode(name));
+    if (needed > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'seats-badge';
+      badge.textContent = placed + '/' + needed;
+      li.appendChild(badge);
+    }
+    li.addEventListener('click', () => selectConst(name));
+    ul.appendChild(li);
+  }
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+function selectConst(name) {
+  selected = name;
+  document.getElementById('hexgrid').classList.add('placing');
+  renderGrid();
+  renderSidebar();
+}
+
+function deselect() {
+  selected = null;
+  document.getElementById('hexgrid').classList.remove('placing');
+  renderGrid();
+  renderSidebar();
+}
+
+function placeAt(posKey) {
+  if (!selected) return;
+  if (occupiedMap[posKey]) return;   // occupied
+  if (!allPositions.has(posKey)) return;
+
+  placement[selected] = placement[selected] || [];
+  placement[selected].push(posKey);
+  recomputeOccupied();
+
+  const needed = seatCounts[selected] || 1;
+  if ((placement[selected] || []).length >= needed) deselect();
+  else { renderGrid(); renderSidebar(); }
+}
+
+function unplaceAt(posKey) {
+  const occ = occupiedMap[posKey];
+  if (!occ) return;
+  const {name, slot} = occ;
+  placement[name].splice(slot, 1);
+  if (!placement[name].length) delete placement[name];
+  recomputeOccupied();
+  if (selected === name) deselect();
+  else { renderGrid(); renderSidebar(); }
+}
+
+function pickUp(posKey) {
+  const occ = occupiedMap[posKey];
+  if (!occ) return;
+  unplaceAt(posKey);
+  selectConst(occ.name);
+}
+
+/* ── SVG event handling ─────────────────────────────────────────────────── */
+document.getElementById('hexgrid').addEventListener('click', function (e) {
+  const posKey = e.target.closest('[data-pos]')?.getAttribute('data-pos');
+  if (!posKey) { deselect(); return; }
+
+  if (selected) {
+    if (occupiedMap[posKey]?.name === selected) {
+      deselect();
+    } else if (occupiedMap[posKey]) {
+      pickUp(posKey);   // swap: pick up what's there, keep current selection
+    } else {
+      placeAt(posKey);
+    }
+  } else {
+    if (occupiedMap[posKey]) pickUp(posKey);
+  }
+});
+
+document.getElementById('hexgrid').addEventListener('contextmenu', function (e) {
+  e.preventDefault();
+  const posKey = e.target.closest('[data-pos]')?.getAttribute('data-pos');
+  if (posKey) unplaceAt(posKey);
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') deselect();
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+    const positions = placement[selected] || [];
+    if (positions.length) {
+      const last = positions[positions.length - 1];
+      unplaceAt(last);
+    }
+  }
+});
+
+/* ── floating tooltip ───────────────────────────────────────────────────── */
+const tip = document.getElementById('hextip');
+document.getElementById('hexgrid').addEventListener('mousemove', function (e) {
+  const poly = e.target.closest('[data-pos]');
+  if (!poly) { tip.style.display = 'none'; return; }
+  const posKey = poly.getAttribute('data-pos');
+  const occ    = occupiedMap[posKey];
+  const label = occ
+    ? occ.name + (seatCounts[occ.name] > 1 ? ` (seat ${occ.slot+1})` : '')
+    : (posKey in baseOnlyPositions ? `[${baseOnlyPositions[posKey]}] (ghost)`
+      : (posKey in basePositions   ? `[${basePositions[posKey]}] (available)`
+      : `Empty — ${posKey}`));
+  tip.textContent = label;
+  const rect = document.getElementById('grid-container').getBoundingClientRect();
+  tip.style.left = (e.clientX - rect.left + 12) + 'px';
+  tip.style.top  = (e.clientY - rect.top  - 8)  + 'px';
+  tip.style.display = 'block';
+});
+document.getElementById('hexgrid').addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+/* ── pan / zoom ──────────────────────────────────────────────────────────── */
+let viewTransform = {x: 0, y: 0, scale: 1};
+let panning = false, lastPan = {x: 0, y: 0};
+
+function applyViewTransform() {
+  const {x, y, scale} = viewTransform;
+  document.getElementById('grid-group').setAttribute(
+    'transform', `translate(${x},${y}) scale(${scale})`);
+}
+
+const svg = document.getElementById('hexgrid');
+svg.addEventListener('mousedown', function (e) {
+  if (e.button === 1 || (e.button === 0 && !e.target.closest('[data-pos]'))) {
+    panning = true;
+    lastPan = {x: e.clientX, y: e.clientY};
+    e.preventDefault();
+  }
+});
+window.addEventListener('mousemove', function (e) {
+  if (!panning) return;
+  viewTransform.x += e.clientX - lastPan.x;
+  viewTransform.y += e.clientY - lastPan.y;
+  lastPan = {x: e.clientX, y: e.clientY};
+  applyViewTransform();
+});
+window.addEventListener('mouseup', () => { panning = false; });
+
+svg.addEventListener('wheel', function (e) {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const rect   = svg.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  viewTransform.x = mx - factor * (mx - viewTransform.x);
+  viewTransform.y = my - factor * (my - viewTransform.y);
+  viewTransform.scale *= factor;
+  applyViewTransform();
+}, {passive: false});
+
+/* ── initial view: fit UK into viewport ─────────────────────────────────── */
+function fitToView() {
+  if (!allPositions.size) return;
+  let minCx = Infinity, maxCx = -Infinity, minCy = Infinity, maxCy = -Infinity;
+  for (const p of allPositions) {
+    if (uniSet.has(p) || bufferSet.has(p)) continue;  // skip peripheral positions for fit
+    const {cx, cy} = hexCenter(p);
+    minCx = Math.min(minCx, cx); maxCx = Math.max(maxCx, cx);
+    minCy = Math.min(minCy, cy); maxCy = Math.max(maxCy, cy);
+  }
+  const rect   = document.getElementById('grid-container').getBoundingClientRect();
+  const padX   = 60, padY = 60;
+  const scaleX = (rect.width  - padX*2) / (maxCx - minCx + HEX_R*2);
+  const scaleY = (rect.height - padY*2) / (maxCy - minCy + HEX_R*2);
+  const s      = Math.min(scaleX, scaleY, 1.5);
+  viewTransform.scale = s;
+  viewTransform.x = padX + rect.left*0 - (minCx - HEX_R) * s;
+  viewTransform.y = padY - (minCy - HEX_R) * s;
+  applyViewTransform();
+}
+
+/* ── load / init ─────────────────────────────────────────────────────────── */
+function init(data) {
+  basePositions     = data.base_positions;
+  baseOnlyPositions = data.base_only_positions || {};
+  bufferSet         = new Set(data.buffer_positions);
+  uniSet            = new Set(data.uni_col_positions);
+  irelandSet        = new Set(data.ireland_block_positions || []);
+  allPositions      = new Set([
+    ...Object.keys(basePositions),
+    ...data.buffer_positions,
+    ...data.uni_col_positions,
+    ...(data.ireland_block_positions || []),
+  ]);
+  targetConsts   = data.target_constituencies;
+  seatCounts     = data.seat_counts;
+  constCounties  = data.const_counties || {};
+  targetYear     = data.target_year;
+  placement      = JSON.parse(JSON.stringify(data.initial_placement));
+  selected       = null;
+  recomputeOccupied();
+  renderGrid();
+  renderSidebar();
+  fitToView();
+}
+
+/* ── buttons ─────────────────────────────────────────────────────────────── */
+document.getElementById('load-btn').addEventListener('click', function () {
+  const base   = document.getElementById('base-select').value;
+  const target = document.getElementById('target-input').value.trim();
+  if (!base || !target) return;
+  window.location.href = `/uk/siteadmin/hexeditor?base=${encodeURIComponent(base)}&target=${encodeURIComponent(target)}`;
+});
+
+const continueBtn = document.getElementById('continue-btn');
+if (continueBtn) {
+  continueBtn.addEventListener('click', function () {
+    const base   = document.getElementById('base-select').value;
+    const target = document.getElementById('target-input').value.trim();
+    if (!base || !target) return;
+    window.location.href = `/uk/siteadmin/hexeditor?base=${encodeURIComponent(base)}&target=${encodeURIComponent(target)}&saved=1`;
+  });
+}
+
+document.getElementById('clear-btn').addEventListener('click', function () {
+  if (!confirm('Clear all target placements?')) return;
+  placement = {};
+  recomputeOccupied();
+  selected = null;
+  renderGrid();
+  renderSidebar();
+});
+
+document.getElementById('save-btn').addEventListener('click', function () {
+  const statusEl = document.getElementById('topbar-status');
+  statusEl.textContent = 'Saving…';
+  fetch('/uk/siteadmin/hexeditor/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+    body: JSON.stringify({target_year: targetYear, placement}),
+  })
+  .then(r => r.json())
+  .then(d => { statusEl.textContent = `Saved — ${d.placed} constituencies placed.`; })
+  .catch(err => { statusEl.textContent = 'Save failed: ' + err; });
+});
+
+document.getElementById('search-input').addEventListener('input', renderSidebar);
+
+function getCookie(name) {
+  const v = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(name+'='));
+  return v ? decodeURIComponent(v.split('=')[1]) : '';
+}
+
+/* ── bootstrap ───────────────────────────────────────────────────────────── */
+const EDITOR_DATA = {{ editor_data_json|safe }};
+if (EDITOR_DATA) init(EDITOR_DATA);
+
+})();
+</script>
+{% endblock %}

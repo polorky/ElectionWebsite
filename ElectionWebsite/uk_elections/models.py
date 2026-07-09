@@ -23,7 +23,7 @@ class Party(models.Model):
 
     name = models.CharField(max_length=255)
     colour = models.CharField(max_length=7)
-    cScale = models.CharField(max_length=255)
+    cScale = models.CharField(max_length=255,blank=True,null=True)
     parent = models.ForeignKey('self',on_delete=models.CASCADE,blank=True,null=True)
 
     class Meta:

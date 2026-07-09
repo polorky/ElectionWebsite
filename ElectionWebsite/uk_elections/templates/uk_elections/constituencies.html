@@ -16,11 +16,44 @@
 
   <h2>UK Constituencies</h2>
 
-  <ul>
-    {% for const in consts %}
-      <li><a href="/uk/constituencies/{{ const }}">{{ const }}</a></li>
+  <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px;">
+    {% for letter, names in consts_by_letter.items %}
+    <button id="tab-{{ letter }}" onclick="showLetter('{{ letter }}')"
+            style="width:32px;padding:4px 0;border:1px solid #ccc;border-radius:4px;cursor:pointer;background:#f5f5f5;color:#333;font-weight:bold;">
+      {{ letter }}
+    </button>
     {% endfor %}
-  </ul>
+  </div>
+
+  {% for letter, names in consts_by_letter.items %}
+  <div id="letter-{{ letter }}" style="display:none;">
+    <ul style="column-count:3;column-gap:24px;list-style:none;margin:0;padding:0;">
+      {% for name in names %}
+      <li style="margin-bottom:3px;break-inside:avoid;"><a href="/uk/constituencies/{{ name }}">{{ name }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+
+  <script>
+  var activeTab = null;
+  function showLetter(letter) {
+    if (activeTab) {
+      document.getElementById('letter-' + activeTab).style.display = 'none';
+      var prev = document.getElementById('tab-' + activeTab);
+      prev.style.background = '#f5f5f5';
+      prev.style.color = '#333';
+      prev.style.borderColor = '#ccc';
+    }
+    document.getElementById('letter-' + letter).style.display = 'block';
+    var btn = document.getElementById('tab-' + letter);
+    btn.style.background = '#3a5f8a';
+    btn.style.color = 'white';
+    btn.style.borderColor = '#3a5f8a';
+    activeTab = letter;
+  }
+  showLetter('{{ first_letter }}');
+  </script>
 
 {% elif pageview == 'noconst' %}
 
@@ -29,24 +62,84 @@
 
 {% else %}
 
-  <h2>{{ consts.0.name }}</h2>
-  <p><b>Modern County:</b> {% for county in consts.0.modern_county.all %} <a href="/uk/counties/{{ county.name }}">{{ county.name }}</a>{% if not forloop.last %}, {% endif %} {% endfor %}</p>
-  <p><b>Historic County:</b> {% for county in consts.0.historic_county.all %} <a href="/uk/counties/{{ county.name }}">{{ county.name }}</a>{% if not forloop.last %}, {% endif %} {% endfor %}</p>
+  <div style="border:1px solid #ccc;border-radius:6px;overflow:hidden;margin-bottom:24px;width:fit-content;">
 
-  <h3>Period(s) of Existence</h3>
-  {% for const in consts %}
-    {% if const.end_date %}
-      <b>{{ const.start_date|date:"Y" }} - {{ const.end_date|date:"Y" }} - Seats: {{ const.seats }}</b>
-    {% else %}
-      <b>{{ const.start_date|date:"Y" }} - Present - Seats: {{ const.seats }}</b>
-    {% endif %}
-    {% if const.predecessors %}
-      <p>Predecessors: {% for p in const.predecessors.all %}<a href="{{ p.name }}">{{ p.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
-    {% endif %}
-    {% if const.successors %}
-      <p>Successors: {% for s in const.successors.all %}<a href="{{ s.name }}">{{ s.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
-    {% endif %}
-  {% endfor %}
+    <div style="background:#3a5f8a;color:white;padding:10px 16px;">
+      <span style="font-size:1.3em;font-weight:bold;">{{ consts.0.name }}</span>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;">
+
+      <div style="flex:1;padding:14px 16px;">
+
+        <table style="border:none;margin:0 0 12px 0;">
+          {% if consts.0.modern_county.all %}
+          <tr>
+            <td style="border:none;padding:2px 10px 2px 0;color:#555;font-weight:bold;white-space:nowrap;vertical-align:top;">Modern County</td>
+            <td style="border:none;padding:2px 0;">{% for county in consts.0.modern_county.all %}<a href="/uk/counties/{{ county.name }}">{{ county.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+          </tr>
+          {% endif %}
+          {% if consts.0.historic_county.all %}
+          <tr>
+            <td style="border:none;padding:2px 10px 2px 0;color:#555;font-weight:bold;white-space:nowrap;vertical-align:top;">Historic County</td>
+            <td style="border:none;padding:2px 0;">{% for county in consts.0.historic_county.all %}<a href="/uk/counties/{{ county.name }}">{{ county.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+          </tr>
+          {% endif %}
+        </table>
+
+        <div style="border-top:1px solid #e8e8e8;padding-top:10px;">
+          <div style="font-weight:bold;color:#555;font-size:0.8em;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">Periods of Existence</div>
+          {% for const in consts %}
+          <div style="margin-bottom:6px;">
+            <span style="font-weight:bold;">
+              {% if const.end_date %}{{ const.start_date|date:"Y" }} – {{ const.end_date|date:"Y" }}{% else %}{{ const.start_date|date:"Y" }} – Present{% endif %}
+            </span>
+            &nbsp;·&nbsp; {{ const.seats }} seat{% if const.seats != 1 %}s{% endif %}
+            {% if const.predecessors.all %}
+            <div style="font-size:0.85em;color:#555;margin-top:1px;">
+              Predecessors: {% for p in const.predecessors.all %}<a href="/uk/constituencies/{{ p.name }}">{{ p.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+            {% if const.successors.all %}
+            <div style="font-size:0.85em;color:#555;margin-top:1px;">
+              Successors: {% for s in const.successors.all %}<a href="/uk/constituencies/{{ s.name }}">{{ s.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+
+      </div>
+
+      {% if mini_geojson %}
+      <div style="flex-shrink:0;padding:12px 12px 12px 0;">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+        <div id="const-mini-map" style="width:200px;height:230px;border:1px solid #ccc;border-radius:4px;overflow:hidden;"></div>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script>
+        (function() {
+          var geom = {{ mini_geojson|safe }};
+          var map = L.map('const-mini-map', {
+            zoomControl: false, attributionControl: false,
+            dragging: false, touchZoom: false, doubleClickZoom: false,
+            scrollWheelZoom: false, boxZoom: false, keyboard: false
+          });
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
+          var layer = L.geoJSON(geom, {
+            style: {color: '#3a5f8a', weight: 2, fillColor: '#5b82b8', fillOpacity: 0.35}
+          }).addTo(map);
+          map.fitBounds(layer.getBounds().pad(0.15));
+        })();
+        </script>
+      </div>
+      {% elif mini_svg %}
+      <div style="flex-shrink:0;padding:12px 12px 12px 0;">
+        <div style="border:1px solid #ccc;border-radius:4px;overflow:hidden;">{{ mini_svg|safe }}</div>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
 
   {% if vs_div %}
     <h3>Vote Share History</h3>

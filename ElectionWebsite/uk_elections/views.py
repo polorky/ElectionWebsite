@@ -1,13 +1,17 @@
+from collections import deque, defaultdict
 from .models import *
 from .upload import Uploader
 from .map_functions import ElectionMap
 from .parliament_api import TurnoutQuery
 from .validation import compare_constituency, has_any_diff
+from .constants import GEOJSON_NAME_MAP
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import HttpResponse
-from django.db.models import Q
+from django.http import HttpResponse, JsonResponse
+from django.db.models import Q, Count
 from django.utils import timezone
 import io
+import json
+import pickle
 import pandas as pd
 from datetime import datetime
 from bokeh.plotting import figure
@@ -34,13 +38,126 @@ def electionView(request, election, map_type='None'):
 
     return render(request, "uk_elections/elections.html", context)
 
+# Module-level caches — populated on first use, shared across requests within a worker process.
+_geojson_lookup = None   # {constituency_name: geometry_json_string}
+_mini_svg_cache = {}     # {constituency_name: svg_string}
+_svg_data = None         # raw pickle dict, keyed by election.map value
+
+
+def _build_geojson_lookup():
+    global _geojson_lookup
+    _geojson_lookup = {}
+    elections = Election.objects.filter(type='GE', gj__isnull=False).exclude(gj='').order_by('-date')
+    seen = set()
+    for elec in elections:
+        file_path = os.path.join(app_static_dir, elec.gj)
+        try:
+            with open(file_path) as f:
+                gj = json.load(f)
+        except Exception:
+            continue
+        for feature in gj.get('features', []):
+            props = feature.get('properties', {})
+            raw_name = props.get('name') or props.get('Name', '')
+            mapped_name = GEOJSON_NAME_MAP.get(raw_name, raw_name)
+            if mapped_name not in seen:
+                _geojson_lookup[mapped_name] = json.dumps(feature['geometry'])
+                seen.add(mapped_name)
+
+
+def _get_svg_data():
+    global _svg_data
+    if _svg_data is None:
+        pkl_path = os.path.join(app_static_dir, 'uk_svg_data_ws')
+        try:
+            with open(pkl_path, 'rb') as f:
+                _svg_data = pickle.load(f)
+        except Exception:
+            _svg_data = {}
+    return _svg_data
+
+
+def _get_constituency_geojson(name):
+    global _geojson_lookup
+    if _geojson_lookup is None:
+        _build_geojson_lookup()
+    return _geojson_lookup.get(name)
+
+
+def _get_constituency_mini_svg(name):
+    if name in _mini_svg_cache:
+        return _mini_svg_cache[name]
+
+    svgs = _get_svg_data()
+    elections = Election.objects.filter(type='GE', map__isnull=False).exclude(map='').order_by('-date')
+    xs_data = ys_data = None
+    for elec in elections:
+        svg_dict = svgs.get(elec.map)
+        if not svg_dict:
+            continue
+        mapped_names = [GEOJSON_NAME_MAP.get(n, n) for n in svg_dict['names']]
+        if name in mapped_names:
+            idx = mapped_names.index(name)
+            xs_data = svg_dict['xs'][idx]
+            ys_data = svg_dict['ys'][idx]
+            break
+
+    if xs_data is None:
+        _mini_svg_cache[name] = ''
+        return ''
+
+    all_x, all_y = [], []
+    for poly in xs_data:
+        for ring in poly:
+            all_x.extend(ring)
+    for poly in ys_data:
+        for ring in poly:
+            all_y.extend(ring)
+    if not all_x:
+        _mini_svg_cache[name] = ''
+        return ''
+
+    min_x, max_x = min(all_x), max(all_x)
+    min_y, max_y = min(all_y), max(all_y)
+    w = max_x - min_x or 1
+    h = max_y - min_y or 1
+    size = 160
+    scale = size / max(w, h)
+    pad = 3
+    vw = w * scale + pad * 2
+    vh = h * scale + pad * 2
+    paths = []
+    for poly_xs, poly_ys in zip(xs_data, ys_data):
+        for ring_xs, ring_ys in zip(poly_xs, poly_ys):
+            pts = ' '.join(
+                f'{(x - min_x) * scale + pad:.1f},{(max_y - y) * scale + pad:.1f}'
+                for x, y in zip(ring_xs, ring_ys)
+            )
+            paths.append(f'<polygon points="{pts}" fill="#5b82b8" stroke="white" stroke-width="0.5"/>')
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{vw:.0f}" height="{vh:.0f}" '
+        f'viewBox="0 0 {vw:.1f} {vh:.1f}">'
+        + ''.join(paths) + '</svg>'
+    )
+    _mini_svg_cache[name] = svg
+    return svg
+
+
 def constituencyView(request, const):
 
     if const == 'home':
 
         names = list(Constituency.objects.values_list('name', flat=True).order_by('name').distinct())
+        consts_by_letter = {}
+        for name in names:
+            consts_by_letter.setdefault(name[0].upper(), []).append(name)
+        first_letter = next(iter(consts_by_letter), '')
 
-        return render(request, "uk_elections/constituencies.html", {'pageview':'home', 'consts': names})
+        return render(request, "uk_elections/constituencies.html", {
+            'pageview': 'home',
+            'consts_by_letter': consts_by_letter,
+            'first_letter': first_letter,
+        })
 
     try:
         constObjs = Constituency.objects.filter(name=const)
@@ -67,7 +184,10 @@ def constituencyView(request, const):
 
     # Vote share history chart (GE elections with known percentages)
     vs_script = vs_div = ''
-    ge = results[(results['type'] == 'GE') & results['percent'].notna()].copy()
+    ge = results[results['type'] == 'GE'].copy()
+    unopposed_mask = ge['unopposed'].fillna(False).astype(bool) & ge['elected'].astype(bool)
+    ge.loc[unopposed_mask, 'percent'] = 100.0
+    ge = ge[ge['percent'].notna()].copy()
     if not ge.empty:
         ge['year'] = pd.to_datetime(ge['date']).dt.year
 
@@ -101,7 +221,6 @@ def constituencyView(request, const):
 
         p_vs.hover.tooltips = [('Party', '@party'), ('Year', '@year'), ('Vote Share', '@pct{0.1f}%')]
         p_vs.hover.mode = 'mouse'
-        p_vs.legend.visible = False
         vs_script, vs_div = components(p_vs)
 
     sep_results = []
@@ -119,7 +238,9 @@ def constituencyView(request, const):
                'consts': constObjs,
                'results': sep_results,
                'vs_div': vs_div,
-               'vs_script': vs_script,}
+               'vs_script': vs_script,
+               'mini_svg': _get_constituency_mini_svg(const),
+               'mini_geojson': _get_constituency_geojson(const),}
     
     return render(request, "uk_elections/constituencies.html", context=context)
 
@@ -155,9 +276,17 @@ def countyView(request, county):
 
     if county == 'home':
 
-        names = list(County.objects.values_list('name', flat=True).order_by('name').distinct())
+        NON_ENGLAND = {'Scotland', 'Wales', 'Ireland', 'Northern Ireland'}
+        groups = {'England': [], 'Scotland': [], 'Wales': [], 'Ireland': [], 'Northern Ireland': []}
+        for c in County.objects.select_related('region').order_by('name'):
+            region = c.region.name
+            if region in NON_ENGLAND:
+                groups[region].append(c.name)
+            else:
+                groups['England'].append(c.name)
+        counties_by_country = {k: v for k, v in groups.items() if v}
 
-        return render(request, "uk_elections/county.html", {'pageview':'home', 'counties': names})
+        return render(request, "uk_elections/county.html", {'pageview':'home', 'counties_by_country': counties_by_country})
 
     try:
         countyObj = County.objects.get(name=county)
@@ -286,6 +415,227 @@ def countyView(request, county):
     })
 
 ########## FUNCTIONS AND VIEWS TO PARSE RAW DATA ##########
+
+def hexeditor(request):
+    hex_pkl = os.path.join(app_static_dir, 'uk_hex_data_ws')
+    with open(hex_pkl, 'rb') as f:
+        hex_df = pickle.load(f)
+
+    hex_cols = sorted(c for c in hex_df.columns if c.endswith(' Hex'))
+    available_years = [c.replace(' Hex', '') for c in hex_cols]
+
+    base_year   = request.GET.get('base', '')
+    target_year = request.GET.get('target', '')
+    load_saved  = request.GET.get('saved', '') == '1'
+    has_saved   = False
+    editor_data = None
+
+    if base_year and target_year and f"{base_year} Hex" in hex_df.columns:
+        base_col   = f"{base_year} Hex"
+        target_col = f"{target_year} Hex"
+        NEIGHBORS  = [(1,-1,0),(-1,1,0),(1,0,-1),(-1,0,1),(0,1,-1),(0,-1,1)]
+
+        base_df = hex_df[hex_df[base_col] != ''][['Constituency', base_col]]
+        base_positions = {row[base_col]: row['Constituency'] for _, row in base_df.iterrows()}
+
+        base_set = set(base_positions)
+        buffer_set = set()
+        for pos_str in base_set:
+            x, y, z = map(int, pos_str.split(','))
+            for dx, dy, dz in NEIGHBORS:
+                npos = f"{x+dx},{y+dy},{z+dz}"
+                if npos not in base_set:
+                    buffer_set.add(npos)
+
+        try:
+            target_elec = Election.objects.get(year=int(target_year), type='GE')
+            all_consts = list(
+                CandidateResult.objects.filter(election=target_elec)
+                .values_list('constituency__name', flat=True)
+                .distinct().order_by('constituency__name')
+            )
+            seat_counts = dict(
+                CandidateResult.objects.filter(election=target_elec, elected=True)
+                .values('constituency__name').annotate(n=Count('id'))
+                .values_list('constituency__name', 'n')
+            )
+        except Election.DoesNotExist:
+            all_consts, seat_counts = [], {}
+
+        uni_col = [f"36,{y},{-36-y}" for y in range(8, -4, -1)]
+        # Two buffer hexes above and below the university column
+        for r_ext in (9, 10, -4, -5):
+            buffer_set.add(f"36,{r_ext},{-36-r_ext}")
+
+        # Find NI constituency positions in the base map
+        ni_names_in_base = set(
+            Constituency.objects
+            .filter(name__in=list(base_positions.values()),
+                    historic_county__region__name='Northern Ireland')
+            .values_list('name', flat=True)
+        )
+        ni_base_positions = {pos for pos, name in base_positions.items() if name in ni_names_in_base}
+
+        # Check whether the target election has any Republic of Ireland constituencies
+        has_ireland_consts = Constituency.objects.filter(
+            name__in=all_consts, historic_county__region__name='Ireland'
+        ).exists()
+
+        # BFS from NI positions in the three down-left directions for 15 steps
+        ireland_block = []
+        if ni_base_positions and has_ireland_consts:
+            DOWN_LEFT = [(-1, 1, 0), (-1, 0, 1), (0, -1, 1)]
+            visited = set(base_positions.keys())
+            frontier = list(ni_base_positions)
+            for _ in range(15):
+                next_frontier = []
+                for pos in frontier:
+                    q, r, _ = map(int, pos.split(','))
+                    for dq, dr, _ in DOWN_LEFT:
+                        npos = f"{q+dq},{r+dr},{-q-dq-r-dr}"
+                        if npos not in visited:
+                            visited.add(npos)
+                            ireland_block.append(npos)
+                            next_frontier.append(npos)
+                frontier = next_frontier
+                if not frontier:
+                    break
+
+        # County info for target constituencies — hex_df first, DB fallback
+        const_counties = {}
+        if 'County' in hex_df.columns:
+            county_map = (hex_df[['Constituency', 'County']]
+                          .drop_duplicates('Constituency')
+                          .set_index('Constituency')['County']
+                          .fillna('').to_dict())
+            for name in all_consts:
+                const_counties[name] = county_map.get(name, '')
+
+        # Fill missing counties from the DB Constituency model (historic_county M2M)
+        missing = [n for n in all_consts if not const_counties.get(n)]
+        if missing:
+            for row in (Constituency.objects
+                        .filter(name__in=missing)
+                        .exclude(historic_county=None)
+                        .values('name', 'historic_county__name')):
+                if row['historic_county__name'] and not const_counties.get(row['name']):
+                    const_counties[row['name']] = row['historic_county__name']
+
+        target_name_set = set(all_consts)
+
+        # Split base positions: common (name in target) vs base-only (ghost)
+        base_only_positions = {}   # pos → name  (grayed out, not in target)
+        initial_placement   = {}   # pre-place exact name matches only
+
+        for pos, name in base_positions.items():
+            if name in target_name_set:
+                seats = seat_counts.get(name, 1)
+                lst = initial_placement.setdefault(name, [])
+                if len(lst) < seats:
+                    lst.append(pos)
+            else:
+                base_only_positions[pos] = name
+
+        # Load saved column only when explicitly requested (?saved=1)
+        has_saved = target_col in hex_df.columns  # noqa: F841 — used in render context
+        if load_saved and has_saved:
+            initial_placement = {}
+            for _, row in hex_df[hex_df[target_col] != ''].iterrows():
+                name, pos = row['Constituency'], row[target_col]
+                initial_placement.setdefault(name, []).append(pos)
+        else:
+            # Pre-place university constituencies in the uni_col (fresh start)
+            uni_idx = 0
+            for name in sorted(n for n in all_consts if 'universit' in n.lower()):
+                if name not in initial_placement:
+                    seats = seat_counts.get(name, 1)
+                    positions = []
+                    for _ in range(seats):
+                        if uni_idx < len(uni_col):
+                            positions.append(uni_col[uni_idx])
+                            uni_idx += 1
+                    if positions:
+                        initial_placement[name] = positions
+
+        editor_data = {
+            'base_year':              base_year,
+            'target_year':            target_year,
+            'base_positions':         base_positions,
+            'base_only_positions':    base_only_positions,
+            'buffer_positions':       sorted(buffer_set),
+            'uni_col_positions':      uni_col,
+            'ireland_block_positions': ireland_block,
+            'target_constituencies':  all_consts,
+            'seat_counts':            seat_counts,
+            'initial_placement':      initial_placement,
+            'const_counties':         const_counties,
+        }
+
+    return render(request, 'uk_elections/hexeditor.html', {
+        'available_years':    available_years,
+        'base_year':          base_year,
+        'target_year':        target_year,
+        'has_saved':          'true' if has_saved else 'false',
+        'load_saved':         load_saved,
+        'editor_data_json':   json.dumps(editor_data) if editor_data else 'null',
+    })
+
+
+def hexeditor_save(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    hex_pkl = os.path.join(app_static_dir, 'uk_hex_data_ws')
+    body = json.loads(request.body)
+    target_year = body.get('target_year', '')
+    placement   = body.get('placement', {})   # {name: [pos, ...]}
+
+    if not target_year:
+        return JsonResponse({'error': 'No target year'}, status=400)
+
+    with open(hex_pkl, 'rb') as f:
+        hex_df = pickle.load(f)
+
+    hex_col = f"{target_year} Hex"
+    if hex_col in hex_df.columns:
+        hex_df = hex_df.drop(columns=[hex_col])
+    hex_df[hex_col] = ''
+
+    from collections import defaultdict
+    occurrence = defaultdict(int)
+    for idx, row in hex_df.iterrows():
+        name = row['Constituency']
+        if name in placement:
+            occ = occurrence[name]
+            if occ < len(placement[name]):
+                hex_df.at[idx, hex_col] = placement[name][occ]
+                occurrence[name] = occ + 1
+
+    meta = hex_df[['Constituency','Region','County']].drop_duplicates('Constituency').set_index('Constituency')
+    extra_rows = []
+    for name, positions in placement.items():
+        for pos in positions[occurrence.get(name, 0):]:
+            r = {col: '' for col in hex_df.columns}
+            r.update({'Constituency': name, hex_col: pos,
+                      'Region': meta.loc[name,'Region'] if name in meta.index else '',
+                      'County': meta.loc[name,'County'] if name in meta.index else ''})
+            extra_rows.append(r)
+    if extra_rows:
+        hex_df = pd.concat([hex_df, pd.DataFrame(extra_rows)], ignore_index=True)
+
+    with open(hex_pkl, 'wb') as f:
+        pickle.dump(hex_df, f)
+
+    try:
+        elec = Election.objects.filter(year=int(target_year), type='GE').first()
+        if elec and not elec.hex:
+            elec.hex = hex_col
+            elec.save()
+    except Exception:
+        pass
+
+    return JsonResponse({'status': 'ok', 'placed': len(placement)})
+
 
 def siteadmin(request):
     '''

@@ -82,8 +82,8 @@
     {% else %}
       <p><a href="/uk/elections/{{ next.year }}/hex">Next Election</a></p>
     {% endif %}
-    {% if election.map %}
-       <p><a href="/uk/elections/{{ election.year }}/map">Switch to {{ election.year }} Election Map</a></p>
+    {% if election.gj %}
+       <p><a href="/uk/elections/{{ election.year }}/gj">Switch to {{ election.year }} Election Map</a></p>
     {% endif %}
     {% if selected_party %}
       <p><a href="/uk/elections/{{ election.year }}/hex">&#8592; Back to Winning Party Map</a></p>
@@ -113,6 +113,9 @@
       <p><a href="/uk/elections/{{ last.year }}/gj">Previous Election</a></p>
     {% else %}
       <p><a href="/uk/elections/{{ next.year }}/gj">Next Election</a></p>
+    {% endif %}
+    {% if election.hex %}
+      <p><a href="/uk/elections/{{ election.year }}/hex">Switch to {{ election.year }} Election Hex</a></p>
     {% endif %}
     {% if selected_party %}
       <p><a href="/uk/elections/{{ election.year }}/gj">&#8592; Back to Winning Party Map</a></p>

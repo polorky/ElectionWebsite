@@ -39,7 +39,7 @@ class ElectionMap():
             cds = ColumnDataSource(dict(x=xs, y=ys, name=names, colours=colours, line_colours=line_colours, results=results, pct=pcts))
             p = self.create_figure(tooltips)
             patch_renderer = self.get_patch_renderer(p, cds)
-            self.context['uni_results'] = get_university_results(election)
+            self.context['uni_results'] = [] if self.map_type == 'hex' else get_university_results(election)
             tile = getattr(self, '_tile_renderer', None)
             self.context['script'], self.context['div'] = wire_map_layout(p, patch_renderer, cds, election, tile)
             self.context['selected_party'] = selected_party
