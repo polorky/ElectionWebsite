@@ -1,6 +1,5 @@
 from .models import Party, Constituency, Election, CandidateResult
-from .constants import BOKEH_DISPLAY_TEXT
-from .constants import GEOJSON_NAME_MAP
+from .constants import BOKEH_DISPLAY_TEXT, GEOJSON_NAME_MAP, DISENFRANCHISED_CONSTITUENCIES
 
 import numpy as np
 from collections import defaultdict
@@ -31,12 +30,22 @@ class ElectionMap():
             self.context['pageview'] = 'hex' if map_type == 'hex' else ('gj' if map_type == 'gj' else 'map')
             names, xs, ys = self.get_base_data()
             results = get_results(names, election)
-            selected_party, colours, split_colours, pct_map = resolve_party_mode(names, results, self.electionObj, request.GET.get('party'), is_hex=(self.map_type == 'hex'))
+            selected_party, colours, split_colours, all_seat_colours, pct_map = resolve_party_mode(names, results, self.electionObj, request.GET.get('party'), is_hex=(self.map_type == 'hex'))
             line_colours = ['black'] * len(names)
             if self.map_type == 'gj':
                 names, xs, ys, colours, line_colours, results = expand_split_seats(names, xs, ys, colours, split_colours, results)
+            elif self.map_type == 'map' and selected_party is None:
+                names, xs, ys, colours, line_colours, results = expand_multi_seats(names, xs, ys, all_seat_colours, results)
+            disfranchised_set = set(DISENFRANCHISED_CONSTITUENCIES.get(election, []))
+            disenfranchised = []
+            for i, n in enumerate(names):
+                if n in disfranchised_set:
+                    colours[i] = '#aaaaaa'
+                    disenfranchised.append(True)
+                else:
+                    disenfranchised.append(False)
             pcts, tooltips = build_pcts_and_tooltips(names, pct_map, selected_party)
-            cds = ColumnDataSource(dict(x=xs, y=ys, name=names, colours=colours, line_colours=line_colours, results=results, pct=pcts))
+            cds = ColumnDataSource(dict(x=xs, y=ys, name=names, colours=colours, line_colours=line_colours, results=results, pct=pcts, disenfranchised=disenfranchised))
             p = self.create_figure(tooltips)
             patch_renderer = self.get_patch_renderer(p, cds)
             self.context['uni_results'] = [] if self.map_type == 'hex' else get_university_results(election)
@@ -342,14 +351,20 @@ def get_main_parties(electionObj):
     )
 
 def get_winner_colours(results, names=None):
-    """Returns (fill_colours, split_colours).
+    """Returns (fill_colours, split_colours, all_seat_colours).
+    fill_colours:     primary (first) winner colour per entry.
+    split_colours:    second-winner colour or None (used by expand_split_seats for gj).
+    all_seat_colours: one colour per elected seat, ordered by votes desc, with repeats
+                      (e.g. Con wins 3 seats, Lib wins 1 → [Con,Con,Con,Lib]).
+                      Used by expand_multi_seats for the SVG map.
     If names is provided (hex mode), assigns unique[N] to the Nth occurrence of each name
     so that split multi-seat hex pairs show different party colours."""
-    fill_colours, split_colours = [], []
+    fill_colours, split_colours, all_seat_colours = [], [], []
     name_count = {} if names is not None else None
     for i, r in enumerate(results):
         elected_colours = [c for c, e in zip(r['Party Colour'], r['Elected']) if e]
         unique = list(dict.fromkeys(elected_colours))
+        all_seat_colours.append(elected_colours)
         if name_count is not None:
             name = names[i]
             occ = name_count.get(name, 0)
@@ -363,10 +378,10 @@ def get_winner_colours(results, names=None):
         else:
             fill_colours.append(unique[0] if unique else '#cccccc')
             split_colours.append(None)
-    return fill_colours, split_colours
+    return fill_colours, split_colours, all_seat_colours
 
 def resolve_party_mode(names, results, electionObj, party_pk, is_hex=False):
-    """Returns (selected_party, colours, split_colours, pct_map).
+    """Returns (selected_party, colours, split_colours, all_seat_colours, pct_map).
     is_hex=True assigns unique[N] colours to the Nth hex of a multi-seat constituency."""
     selected_party = None
     pct_map = {}
@@ -375,11 +390,12 @@ def resolve_party_mode(names, results, electionObj, party_pk, is_hex=False):
             selected_party = Party.objects.get(pk=party_pk)
             colours, pct_map = get_party_vote_colours(names, electionObj, selected_party)
             split_colours = [None] * len(colours)
+            all_seat_colours = [[c] for c in colours]
         except Party.DoesNotExist:
-            colours, split_colours = get_winner_colours(results, names if is_hex else None)
+            colours, split_colours, all_seat_colours = get_winner_colours(results, names if is_hex else None)
     else:
-        colours, split_colours = get_winner_colours(results, names if is_hex else None)
-    return selected_party, colours, split_colours, pct_map
+        colours, split_colours, all_seat_colours = get_winner_colours(results, names if is_hex else None)
+    return selected_party, colours, split_colours, all_seat_colours, pct_map
 
 def build_pcts_and_tooltips(names, pct_map, selected_party):
     pcts = [f"{pct_map[n]:.1f}%" if n in pct_map else "Did not stand" for n in names]
@@ -405,29 +421,44 @@ def wire_map_layout(p, patch_renderer, cds, election, tile_renderer=None):
     return components(p)
 
 def _xs_ys_to_shapely(x, y):
-    """Convert multi_polygons xs/ys entry back to a Shapely geometry."""
+    """Convert multi_polygons xs/ys entry back to a Shapely geometry.
+    Ring 0 of each polygon entry is the exterior; rings 1+ are interior holes."""
     parts = []
     for p_idx in range(len(x)):
-        for r_idx in range(len(x[p_idx])):
-            coords = list(zip(x[p_idx][r_idx], y[p_idx][r_idx]))
-            if len(coords) >= 3:
-                parts.append(Polygon(coords))
+        if not x[p_idx]:
+            continue
+        ext = list(zip(x[p_idx][0], y[p_idx][0]))
+        if len(ext) < 3:
+            continue
+        holes = [
+            list(zip(x[p_idx][r], y[p_idx][r]))
+            for r in range(1, len(x[p_idx]))
+            if len(x[p_idx][r]) >= 3
+        ]
+        try:
+            parts.append(Polygon(ext, holes))
+        except Exception:
+            parts.append(Polygon(ext))
     if not parts:
         return None
     return make_valid(MultiPolygon(parts) if len(parts) > 1 else parts[0])
 
 def _shapely_to_xs_ys(geom):
-    """Convert a Shapely geometry to multi_polygons xs/ys entry."""
+    """Convert a Shapely geometry to multi_polygons xs/ys entry.
+    Interior rings (holes) are preserved so that borough cutouts in county
+    polygons survive the split operation."""
     xs, ys = [], []
-    if geom.geom_type == 'Polygon':
-        coords = list(geom.exterior.coords)
-        xs.append([[c[0] for c in coords]])
-        ys.append([[c[1] for c in coords]])
-    elif geom.geom_type == 'MultiPolygon':
-        for part in geom.geoms:
-            coords = list(part.exterior.coords)
-            xs.append([[c[0] for c in coords]])
-            ys.append([[c[1] for c in coords]])
+    polys = [geom] if geom.geom_type == 'Polygon' else (
+        list(geom.geoms) if geom.geom_type == 'MultiPolygon' else []
+    )
+    for poly in polys:
+        rings_x = [[c[0] for c in poly.exterior.coords]]
+        rings_y = [[c[1] for c in poly.exterior.coords]]
+        for interior in poly.interiors:
+            rings_x.append([c[0] for c in interior.coords])
+            rings_y.append([c[1] for c in interior.coords])
+        xs.append(rings_x)
+        ys.append(rings_y)
     return xs, ys
 
 def expand_split_seats(names, xs, ys, colours, split_colours, results):
@@ -468,10 +499,77 @@ def expand_split_seats(names, xs, ys, colours, split_colours, results):
                 new_xs.append(hxs)
                 new_ys.append(hys)
                 new_colours.append(col)
-                new_line_colours.append('#cccccc')
+                new_line_colours.append('black')
                 new_results.append(result)
 
     return new_names, new_xs, new_ys, new_colours, new_line_colours, new_results
+
+def expand_multi_seats(names, xs, ys, all_seat_colours, results):
+    """Split multi-seat constituencies into N strips (one per seat), coloured by winner.
+    Strips run along the polygon's longer axis so they look natural.
+    Seats won by the same party are grouped into adjacent strips of that colour.
+    Single-seat or unanimously-won constituencies are left as a single polygon."""
+    new_names, new_xs, new_ys, new_colours, new_line_colours, new_results = [], [], [], [], [], []
+
+    for name, x, y, seat_colours, result in zip(names, xs, ys, all_seat_colours, results):
+        unique = list(dict.fromkeys(seat_colours))
+        n = len(seat_colours)
+
+        if n <= 1 or len(unique) == 1:
+            new_names.append(name)
+            new_xs.append(x)
+            new_ys.append(y)
+            new_colours.append(seat_colours[0] if seat_colours else '#cccccc')
+            new_line_colours.append('black')
+            new_results.append(result)
+            continue
+
+        geom = _xs_ys_to_shapely(x, y)
+        if geom is None or geom.is_empty:
+            new_names.append(name)
+            new_xs.append(x)
+            new_ys.append(y)
+            new_colours.append(seat_colours[0] if seat_colours else '#cccccc')
+            new_line_colours.append('black')
+            new_results.append(result)
+            continue
+
+        minx, miny, maxx, maxy = geom.bounds
+        width  = maxx - minx
+        height = maxy - miny
+        pad    = max(width, height)
+
+        # Cut along the longer axis into n equal strips
+        any_added = False
+        if width >= height:
+            step = width / n
+            slices = [box(minx + i * step, miny - pad, minx + (i + 1) * step, maxy + pad) for i in range(n)]
+        else:
+            step = height / n
+            slices = [box(minx - pad, miny + i * step, maxx + pad, miny + (i + 1) * step) for i in range(n)]
+
+        for slice_box, col in zip(slices, seat_colours):
+            part = make_valid(geom.intersection(slice_box))
+            if not part.is_empty:
+                hxs, hys = _shapely_to_xs_ys(part)
+                new_names.append(name)
+                new_xs.append(hxs)
+                new_ys.append(hys)
+                new_colours.append(col)
+                new_line_colours.append('black')
+                new_results.append(result)
+                any_added = True
+
+        if not any_added:
+            new_names.append(name)
+            new_xs.append(x)
+            new_ys.append(y)
+            new_colours.append(seat_colours[0] if seat_colours else '#cccccc')
+            new_line_colours.append('black')
+            new_results.append(result)
+
+    return new_names, new_xs, new_ys, new_colours, new_line_colours, new_results
+
 
 def _rings_to_xy(rings):
     """Convert a list of GeoJSON rings (outer + holes) to ([x_lists], [y_lists])."""

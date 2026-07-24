@@ -9,6 +9,7 @@ urlpatterns = [
     path('elections/<str:election>/<str:map_type>', views.electionView, name='elections'),
     path('constituencies/<str:const>', views.constituencyView, name='consts'),
     path('counties/<str:county>', views.countyView, name='counties'),
+    path('sources', views.sourcesView, name='sources'),
     path('siteadmin', views.siteadmin, name='siteadmin'),
     path('siteadmin/hexeditor', views.hexeditor, name='hexeditor'),
     path('siteadmin/hexeditor/save', views.hexeditor_save, name='hexeditor_save'),

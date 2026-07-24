@@ -1,0 +1,48 @@
+{% extends "uk_elections/ukhome.html" %}
+
+{% block title %}Constituencies{% endblock title %}
+
+{% block submenubar %}
+  <li class="nav"><a class="nav" href="/uk">UK Home</a></li>
+  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
+  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
+  <li class="nav"><a class="nav" href="/uk/counties/home">Counties</a></li>
+  <li class="nav"><a class="nav" href="/uk/boundaries">Boundary Changes</a></li>
+  <li class="nav"><a class="nav active" href="/uk/sources">Sources</a></li>
+{% endblock submenubar %}
+
+{% block content %}
+
+<h2>Sources and References</h2>
+<p>This project has grown haphazardly over a number of years and I have 
+    chop and changed data sources and display methods over that time. This
+    does regrettably mean that I can't precisely source everything I am
+    using. However, below are all the sources that I bookmarked so, even
+    if I didn't use them, they may well be useful to others.</p>
+<ul>
+    <li><b>Parliamentary Constituencies</b> - <a href="https://www.parlconst.org/home">Link</a>
+     - Provided geojson files for constituency boundaries back to 1885.</li>
+    <li><b>Parliament API</b> - <a href="https://api.parliament.uk/uk-general-elections">Link</a>
+     - Results going back to 1832. I originally pulled the results from
+    Wikipedia but am checking them against this site. That said it has 
+    some disappointing errors/typos.</li>
+    <li><b>Wikipedia</b> - <a href="https://en.wikipedia.org/wiki/Main_Page">Link</a>
+     - My main reference for results and constituency changes. I am trying
+    to verify everything from more primary sources but it's such a complete
+    collection of information, it's tricky not to reply on it.</li>
+    <li><b>History of Parliament</b> - <a href="http://www.histparl.ac.uk/">Link</a>
+     - This is one of the sources that I've used sporadically mainly to 
+     confirm discrepancies elsewhere.</li>
+    <li><b>UK Administrative Boundaries</b> - <a href="https://onsdigital.github.io/uk-topojson/">Link</a>
+     - Used to work out counties for constituencies.</li>
+    <li><b>Scottish Boundary Commission</b> - <a href="https://www.bcomm-scotland.independent.gov.uk/reviews/historical-reviews/">Link</a>
+     - Details changes in Scottish constituencies (some of which are quite
+    complex!)</li>
+    <li><b>Office for National Statistics</b> - <a href="https://geoportal.statistics.gov.uk/">Link</a>
+     - Also have constituency maps, not sure anything from here actually
+    made it into the site though.</li>
+    <li><b>Open Data NI</b> - <a href="https://www.opendatani.gov.uk/">Link</a>
+    More data, specific to Northern Ireland</li>
+</ul>
+
+{% endblock content %}

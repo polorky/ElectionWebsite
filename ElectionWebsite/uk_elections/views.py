@@ -414,6 +414,9 @@ def countyView(request, county):
         'tl_div':         tl_div,
     })
 
+def sourcesView(request):
+    return render(request, "uk_elections/sources.html")
+
 ########## FUNCTIONS AND VIEWS TO PARSE RAW DATA ##########
 
 def hexeditor(request):
@@ -466,40 +469,6 @@ def hexeditor(request):
         # Two buffer hexes above and below the university column
         for r_ext in (9, 10, -4, -5):
             buffer_set.add(f"36,{r_ext},{-36-r_ext}")
-
-        # Find NI constituency positions in the base map
-        ni_names_in_base = set(
-            Constituency.objects
-            .filter(name__in=list(base_positions.values()),
-                    historic_county__region__name='Northern Ireland')
-            .values_list('name', flat=True)
-        )
-        ni_base_positions = {pos for pos, name in base_positions.items() if name in ni_names_in_base}
-
-        # Check whether the target election has any Republic of Ireland constituencies
-        has_ireland_consts = Constituency.objects.filter(
-            name__in=all_consts, historic_county__region__name='Ireland'
-        ).exists()
-
-        # BFS from NI positions in the three down-left directions for 15 steps
-        ireland_block = []
-        if ni_base_positions and has_ireland_consts:
-            DOWN_LEFT = [(-1, 1, 0), (-1, 0, 1), (0, -1, 1)]
-            visited = set(base_positions.keys())
-            frontier = list(ni_base_positions)
-            for _ in range(15):
-                next_frontier = []
-                for pos in frontier:
-                    q, r, _ = map(int, pos.split(','))
-                    for dq, dr, _ in DOWN_LEFT:
-                        npos = f"{q+dq},{r+dr},{-q-dq-r-dr}"
-                        if npos not in visited:
-                            visited.add(npos)
-                            ireland_block.append(npos)
-                            next_frontier.append(npos)
-                frontier = next_frontier
-                if not frontier:
-                    break
 
         # County info for target constituencies — hex_df first, DB fallback
         const_counties = {}
@@ -564,7 +533,7 @@ def hexeditor(request):
             'base_only_positions':    base_only_positions,
             'buffer_positions':       sorted(buffer_set),
             'uni_col_positions':      uni_col,
-            'ireland_block_positions': ireland_block,
+            'ireland_block_positions': [],
             'target_constituencies':  all_consts,
             'seat_counts':            seat_counts,
             'initial_placement':      initial_placement,

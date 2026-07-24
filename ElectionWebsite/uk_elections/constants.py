@@ -7,6 +7,15 @@ GEOJSON_NAME_MAP = {
     'Angus East': 'East Angus'
 }
 
+DISENFRANCHISED_CONSTITUENCIES = {
+    '1872': ('Beverley', 'Bridgwater', 'Cashel', 'Sligo Borough'),
+    '1880': ('Beverley', 'Bridgwater', 'Cashel', 'Sligo Borough'),
+    '1859': ('St Albans', 'Sudbury'),
+    '1857': ('St Albans', 'Sudbury'),
+    '1852': ('St Albans', 'Sudbury'),
+    '1847': ('Sudbury',),
+}
+
 
 # Template for the text to be displayed when a constituency is clicked on the map
 def _build_results_html_js(name_expr, res_expr, year_expr):
@@ -44,11 +53,18 @@ def _build_results_html_js(name_expr, res_expr, year_expr):
 BOKEH_DISPLAY_TEXT = """
           const idx = cb_obj.indices[0];
           if (idx === undefined) return;
+          const panel = document.getElementById('map-results');
+          if (!panel) return;
+          if (cds.data['disenfranchised'][idx]) {
+              panel.innerHTML = "<h2>" + cds.data['name'][idx] + "</h2>"
+                  + "<p><em>This constituency was disenfranchised prior to the "
+                  + election + " election and returned no MPs.</em></p>";
+              return;
+          }
           """ + _build_results_html_js(
     "cds.data['name'][idx]",
     "cds.data['results'][idx]",
     "election",
 ) + """
-          const panel = document.getElementById('map-results');
-          if (panel) panel.innerHTML = html;
+          panel.innerHTML = html;
        """
