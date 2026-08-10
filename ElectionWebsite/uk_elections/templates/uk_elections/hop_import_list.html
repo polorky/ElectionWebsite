@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}HOP Import — 1820–1832{% endblock %}
+{% block content %}
+<style>
+  #hop-list-header { display:flex; align-items:center; gap:16px; margin-bottom:14px; flex-wrap:wrap; }
+  #hop-search { font-size:13px; padding:5px 9px; border:1px solid #bbb; border-radius:4px; width:220px; }
+  .hop-alpha { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px; }
+  .hop-alpha a { font-size:12px; padding:2px 7px; border:1px solid #ccc; border-radius:3px;
+                 text-decoration:none; color:#1976d2; }
+  .hop-alpha a:hover { background:#e3f2fd; }
+  .hop-group-head { font-size:11px; font-weight:bold; color:#777; text-transform:uppercase;
+                    letter-spacing:.5px; margin:14px 0 4px; border-bottom:1px solid #eee; padding-bottom:2px; }
+  .hop-const-link { display:inline-block; padding:3px 10px; font-size:13px; color:#1565c0;
+                    text-decoration:none; border-radius:3px; margin:1px 0; }
+  .hop-const-link:hover { background:#e3f2fd; }
+  #hop-empty { display:none; color:#999; font-size:13px; margin-top:8px; }
+</style>
+
+<h1>HOP Import — 1820–1832</h1>
+<p>Click a constituency to scrape its History of Parliament page and preview the DB changes before committing.</p>
+
+{% if error %}
+<div style="background:#ffebee;border:1px solid #ef9a9a;border-radius:4px;padding:8px 12px;color:#b71c1c;margin-bottom:12px;">
+  Error loading constituency list: {{ error }}
+</div>
+{% endif %}
+
+<div id="hop-list-header">
+  <strong>{{ count }} constituencies</strong>
+  <input id="hop-search" type="text" placeholder="Filter…" oninput="filterList(this.value)">
+</div>
+
+<div class="hop-alpha" id="hop-alpha"></div>
+<div id="hop-list">
+  {% regroup constituencies by 0|first as letter_groups %}
+  {% for group in letter_groups %}
+    <div class="hop-group-head hop-letter" data-letter="{{ group.grouper }}">{{ group.grouper }}</div>
+    {% for name, slug, url in group.list %}
+      <div class="hop-item">
+        <a class="hop-const-link" href="{% url 'hop_import_preview' slug %}">{{ name }}</a>
+      </div>
+    {% endfor %}
+  {% endfor %}
+</div>
+<div id="hop-empty">No constituencies match your search.</div>
+
+<script>
+(function () {
+  // Build alphabet jump links
+  const letters = [...new Set(
+    [...document.querySelectorAll('.hop-letter')].map(el => el.dataset.letter)
+  )];
+  const alphaEl = document.getElementById('hop-alpha');
+  letters.forEach(l => {
+    const a = document.createElement('a');
+    a.href = '#';
+    a.textContent = l;
+    a.onclick = e => {
+      e.preventDefault();
+      document.querySelector(`.hop-letter[data-letter="${l}"]`)
+              ?.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    alphaEl.appendChild(a);
+  });
+
+  window.filterList = function (q) {
+    q = q.toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.hop-item').forEach(item => {
+      const match = item.textContent.toLowerCase().includes(q);
+      item.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    document.querySelectorAll('.hop-letter').forEach(hdr => {
+      // Hide letter header if all items in its group are hidden
+      let next = hdr.nextElementSibling;
+      let anyVisible = false;
+      while (next && !next.classList.contains('hop-letter')) {
+        if (next.style.display !== 'none') anyVisible = true;
+        next = next.nextElementSibling;
+      }
+      hdr.style.display = anyVisible ? '' : 'none';
+    });
+    document.getElementById('hop-empty').style.display = visible ? 'none' : 'block';
+  };
+})();
+</script>
+{% endblock %}

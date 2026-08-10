@@ -7,7 +7,7 @@ from .validation import compare_constituency, has_any_diff
 from .constants import GEOJSON_NAME_MAP
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpResponse, JsonResponse
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Sum
 from django.utils import timezone
 import io
 import json
@@ -258,10 +258,25 @@ def boundaryChangesView(request):
             unique_elections.append(e)
 
     changes = []
-    for e in unique_elections:
-        cal_year = e.date.year
-        created  = list(Constituency.objects.filter(start_date__year=cal_year).order_by('name'))
-        abolished = list(Constituency.objects.filter(end_date__year=cal_year).order_by('name'))
+    for i, e in enumerate(unique_elections):
+        if i == 0:
+            # No previous election to compare: fall back to same-year match
+            created  = list(Constituency.objects.filter(start_date__year=e.date.year).order_by('name'))
+            abolished = list(Constituency.objects.filter(end_date__year=e.date.year).order_by('name'))
+        else:
+            prev_date = unique_elections[i - 1].date
+            created = list(
+                Constituency.objects.filter(
+                    start_date__gt=prev_date,
+                    start_date__lte=e.date,
+                ).order_by('name')
+            )
+            abolished = list(
+                Constituency.objects.filter(
+                    end_date__gt=prev_date,
+                    end_date__lte=e.date,
+                ).order_by('name')
+            )
         if created or abolished:
             changes.append({'election': e, 'created': created, 'abolished': abolished})
 
@@ -443,12 +458,17 @@ def hexeditor(request):
 
         base_set = set(base_positions)
         buffer_set = set()
-        for pos_str in base_set:
-            x, y, z = map(int, pos_str.split(','))
-            for dx, dy, dz in NEIGHBORS:
-                npos = f"{x+dx},{y+dy},{z+dz}"
-                if npos not in base_set:
-                    buffer_set.add(npos)
+        frontier = base_set
+        for _ in range(2):
+            new_ring = set()
+            for pos_str in frontier:
+                x, y, z = map(int, pos_str.split(','))
+                for dx, dy, dz in NEIGHBORS:
+                    npos = f"{x+dx},{y+dy},{z+dz}"
+                    if npos not in base_set and npos not in buffer_set:
+                        new_ring.add(npos)
+            buffer_set |= new_ring
+            frontier = new_ring
 
         try:
             target_elec = Election.objects.get(year=int(target_year), type='GE')
@@ -465,9 +485,29 @@ def hexeditor(request):
         except Election.DoesNotExist:
             all_consts, seat_counts = [], {}
 
+        # Add any constituency in the base map that has no results this election
+        # (alternating ones that didn't elect, or ones whose data hasn't been entered yet)
+        elected_set = set(all_consts)
+        base_name_set = set(base_positions.values())
+        base_missing = base_name_set - elected_set
+        if base_missing:
+            for const in Constituency.objects.filter(name__in=base_missing):
+                all_consts.append(const.name)
+                seat_counts.setdefault(const.name, const.seats or 1)
+        # Also add any DB-flagged alternating constituency not covered above
+        alternating_names = set(all_consts)
+        for name in (Constituency.objects
+                     .filter(alternating__isnull=False)
+                     .exclude(alternating='')
+                     .exclude(name__in=alternating_names)
+                     .values_list('name', flat=True)):
+            all_consts.append(name)
+            seat_counts.setdefault(name, 1)
+        all_consts = sorted(all_consts)
+
         uni_col = [f"36,{y},{-36-y}" for y in range(8, -4, -1)]
-        # Two buffer hexes above and below the university column
-        for r_ext in (9, 10, -4, -5):
+        # Four buffer hexes above and below the university column
+        for r_ext in (9, 10, 11, 12, -4, -5, -6, -7):
             buffer_set.add(f"36,{r_ext},{-36-r_ext}")
 
         # County info for target constituencies — hex_df first, DB fallback
@@ -512,6 +552,12 @@ def hexeditor(request):
             for _, row in hex_df[hex_df[target_col] != ''].iterrows():
                 name, pos = row['Constituency'], row[target_col]
                 initial_placement.setdefault(name, []).append(pos)
+            # Any saved position not in the base map must be added to the buffer
+            # so the client includes it in allPositions and renders the hex
+            for positions in initial_placement.values():
+                for pos in positions:
+                    if pos not in base_set:
+                        buffer_set.add(pos)
         else:
             # Pre-place university constituencies in the uni_col (fresh start)
             uni_idx = 0
@@ -619,7 +665,51 @@ def siteadmin(request):
         uploader = Uploader(myfile)
         status = uploader.errors
 
-    return render(request, "uk_elections/siteadmin.html", {'status':status})
+    elections = (Election.objects
+                 .filter(type='GE')
+                 .order_by('date')
+                 .annotate(elected_count=Count('candidateresult', filter=Q(candidateresult__elected=True))))
+
+    election_stats = []
+    for e in elections:
+        active = (Constituency.objects
+                  .filter(start_date__lte=e.date)
+                  .filter(Q(end_date__isnull=True) | Q(end_date__gt=e.date)))
+        totals = active.aggregate(constituency_count=Count('id'), seat_total=Sum('seats'))
+        election_stats.append({
+            'election': e,
+            'constituency_count': totals['constituency_count'] or 0,
+            'seat_total': totals['seat_total'] or 0,
+            'elected_count': e.elected_count,
+        })
+
+    # Find constituencies where a record ended and a replacement started with a different seat count.
+    # These indicate data entry errors (e.g. seats entered as 1 then corrected to 2 via a new record).
+    dup_names = (Constituency.objects
+                 .values('name')
+                 .annotate(cnt=Count('id'))
+                 .filter(cnt__gt=1)
+                 .values_list('name', flat=True))
+
+    seat_issues = []
+    for name in sorted(dup_names):
+        instances = list(Constituency.objects.filter(name=name).order_by('start_date'))
+        for i in range(len(instances) - 1):
+            old, new = instances[i], instances[i + 1]
+            if old.seats != new.seats:
+                seat_issues.append({
+                    'name': name,
+                    'old_seats': old.seats,
+                    'new_seats': new.seats,
+                    'old_end': old.end_date,
+                    'new_start': new.start_date,
+                })
+
+    return render(request, "uk_elections/siteadmin.html", {
+        'status': status,
+        'election_stats': election_stats,
+        'seat_issues': seat_issues,
+    })
 
 def parliamentapi(request):
 
@@ -655,6 +745,77 @@ def parliamentapi(request):
         return response
 
     return render(request, "uk_elections/parliamentapi.html", {'result_column': TurnoutQuery.RESULT_COLUMN})
+
+
+########## HOP IMPORT VIEWS ##########
+
+def hop_import_list(request):
+    from .hop_import import get_hop_constituency_list
+    try:
+        constituencies = get_hop_constituency_list()
+    except Exception as e:
+        constituencies = []
+        return render(request, 'uk_elections/hop_import_list.html', {
+            'constituencies': [], 'error': str(e),
+        })
+    return render(request, 'uk_elections/hop_import_list.html', {
+        'constituencies': constituencies,
+        'count': len(constituencies),
+    })
+
+
+def hop_import_preview(request, slug):
+    from .hop_import import (
+        get_hop_constituency_list, slug_to_name,
+        build_preview, commit_preview,
+    )
+    from scrape_hop_constituencies import fetch_page, parse_elections_table
+
+    # Resolve the display name from the cached CDX list
+    try:
+        const_list = get_hop_constituency_list()
+        match = next((c for c in const_list if c[1] == slug), None)
+        constituency_name = match[0] if match else slug_to_name(slug)
+        hop_url = match[2] if match else (
+            f'https://www.historyofparliamentonline.org/volume/1820-1832/constituencies/{slug}'
+        )
+    except Exception:
+        constituency_name = slug_to_name(slug)
+        hop_url = f'https://www.historyofparliamentonline.org/volume/1820-1832/constituencies/{slug}'
+
+    if request.method == 'POST':
+        soup = fetch_page(hop_url)
+        if not soup:
+            return render(request, 'uk_elections/hop_import_preview.html', {
+                'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
+                'error': 'Could not fetch HOP page to commit.',
+            })
+        rows = parse_elections_table(soup, constituency_name)
+        preview = build_preview(rows, constituency_name)
+        stats = commit_preview(preview)
+        return render(request, 'uk_elections/hop_import_preview.html', {
+            'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
+            'committed': True, 'stats': stats,
+        })
+
+    # GET — scrape and build preview
+    soup = fetch_page(hop_url)
+    if not soup:
+        return render(request, 'uk_elections/hop_import_preview.html', {
+            'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
+            'error': 'Could not fetch HOP page (Wayback Machine may be unavailable).',
+        })
+    rows = parse_elections_table(soup, constituency_name)
+    if not rows:
+        return render(request, 'uk_elections/hop_import_preview.html', {
+            'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
+            'error': 'No election table found on this HOP page.',
+        })
+    preview = build_preview(rows, constituency_name)
+    return render(request, 'uk_elections/hop_import_preview.html', {
+        'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
+        'preview': preview, 'committed': False,
+    })
 
 
 ########## VALIDATION VIEWS ##########

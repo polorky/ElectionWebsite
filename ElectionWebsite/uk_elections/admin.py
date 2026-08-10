@@ -11,6 +11,9 @@ class CountyAdmin(admin.ModelAdmin):
 class PartyAdmin(admin.ModelAdmin):
     list_display = ('name','parent')
 
+class PersonAdmin(admin.ModelAdmin):
+    list_display = ('name','hop_id')
+
 class ConstituencyAdminForm(forms.ModelForm):
     class Meta:
         model = Constituency
@@ -42,12 +45,12 @@ class ConstituencyAdmin(admin.ModelAdmin):
     readonly_fields = ['get_predecessors','get_successors']
 
     def formatted_start_date(self, obj):
-        return obj.start_date.strftime('%Y/%m/%d') if obj.start_date else "None"
+        return obj.start_date.strftime('%Y-%m-%d') if obj.start_date else "None"
     formatted_start_date.short_description = 'Start Date'
     formatted_start_date.admin_order_field = 'start_date'
 
     def formatted_end_date(self, obj):
-        return obj.end_date.strftime('%Y/%m/%d') if obj.end_date else "Present"
+        return obj.end_date.strftime('%Y-%m-%d') if obj.end_date else "Present"
     formatted_end_date.short_description = 'End Date'
     formatted_end_date.admin_order_field = 'end_date' 
 
@@ -91,6 +94,7 @@ class CoalitionAdmin(admin.ModelAdmin):
 
 class ConstituencyResultAdmin(admin.ModelAdmin):
     list_display = ('constituency','election')
+    list_filter = ['constituency','election']
 
 class CandidateResultAdmin(admin.ModelAdmin):
     list_display = ('constituency','election','party','candidate')
@@ -104,6 +108,7 @@ class CandidateResultAdmin(admin.ModelAdmin):
 admin.site.register(Region, RegionAdmin)
 admin.site.register(County, CountyAdmin)
 admin.site.register(Party, PartyAdmin)
+admin.site.register(Person, PersonAdmin)
 admin.site.register(Constituency, ConstituencyAdmin)
 admin.site.register(Election, ElectionAdmin)
 admin.site.register(Coalition, CoalitionAdmin)

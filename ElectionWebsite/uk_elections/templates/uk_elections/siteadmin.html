@@ -6,6 +6,7 @@
 <h1>Data Import</h1>
 
 <p><a href="/uk/siteadmin/hexeditor">Hex Map Editor</a></p>
+<p><a href="/uk/siteadmin/hop-import">HOP Import — 1820–1832</a></p>
 
 <form method="post" action="/uk/siteadmin" enctype="multipart/form-data">
   {% csrf_token %}
@@ -22,6 +23,56 @@
     <li>{{ error }}</li>
   {% endfor %}
 </ul>
+{% endif %}
+
+<h2>Election coverage</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Election</th>
+      <th>Constituencies</th>
+      <th>Seats</th>
+      <th>Elected</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in election_stats %}
+    <tr>
+      <td>{{ row.election.year }}</td>
+      <td>{{ row.constituency_count }}</td>
+      <td>{{ row.seat_total }}</td>
+      <td>{{ row.elected_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if seat_issues %}
+<details>
+  <summary><strong>Seat count discrepancies ({{ seat_issues|length }})</strong> — constituencies with duplicate records where the seat count changed</summary>
+  <table>
+    <thead>
+      <tr>
+        <th>Constituency</th>
+        <th>Old seats</th>
+        <th>New seats</th>
+        <th>Old record ended</th>
+        <th>New record started</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for issue in seat_issues %}
+      <tr>
+        <td>{{ issue.name }}</td>
+        <td>{{ issue.old_seats }}</td>
+        <td>{{ issue.new_seats }}</td>
+        <td>{{ issue.old_end|default:"—" }}</td>
+        <td>{{ issue.new_start|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
 {% endif %}
 
 {% endblock %}

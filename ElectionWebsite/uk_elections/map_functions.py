@@ -4,7 +4,7 @@ from .constants import BOKEH_DISPLAY_TEXT, GEOJSON_NAME_MAP, DISENFRANCHISED_CON
 import numpy as np
 from collections import defaultdict
 from matplotlib.patches import RegularPolygon
-from django.db.models import Count
+from django.db.models import Count, Q
 from bokeh.models import TapTool, CustomJS, ColumnDataSource, Toggle
 from bokeh.embed import components
 from bokeh.plotting import figure
@@ -44,8 +44,35 @@ class ElectionMap():
                     disenfranchised.append(True)
                 else:
                     disenfranchised.append(False)
+            # Handle alternating Scottish constituencies (every-other-election voters)
+            election_alt = self.electionObj.alternate
+            election_date = self.electionObj.date
+            alt_qs = (Constituency.objects
+                      .exclude(alternating__isnull=True)
+                      .exclude(alternating='')
+                      .filter(start_date__lte=election_date)
+                      .filter(Q(end_date__isnull=True) | Q(end_date__gt=election_date)))
+            alternating_inactive_map = {}  # name → paired constituency name
+            for c in alt_qs:
+                try:
+                    const_alt = int(c.alternating[0])
+                    paired = c.alternating[2:] if len(c.alternating) > 2 else ''
+                except (ValueError, IndexError):
+                    continue
+                if const_alt != election_alt:
+                    alternating_inactive_map[c.name] = paired
+            alternating_inactive = []
+            paired_consts = []
+            for i, n in enumerate(names):
+                if n in alternating_inactive_map:
+                    colours[i] = '#aaaaaa'
+                    alternating_inactive.append(True)
+                    paired_consts.append(alternating_inactive_map[n])
+                else:
+                    alternating_inactive.append(False)
+                    paired_consts.append('')
             pcts, tooltips = build_pcts_and_tooltips(names, pct_map, selected_party)
-            cds = ColumnDataSource(dict(x=xs, y=ys, name=names, colours=colours, line_colours=line_colours, results=results, pct=pcts, disenfranchised=disenfranchised))
+            cds = ColumnDataSource(dict(x=xs, y=ys, name=names, colours=colours, line_colours=line_colours, results=results, pct=pcts, disenfranchised=disenfranchised, alternating_inactive=alternating_inactive, paired_const=paired_consts))
             p = self.create_figure(tooltips)
             patch_renderer = self.get_patch_renderer(p, cds)
             self.context['uni_results'] = [] if self.map_type == 'hex' else get_university_results(election)

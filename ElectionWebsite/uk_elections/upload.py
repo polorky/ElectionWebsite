@@ -12,8 +12,11 @@ parsing_list = (
                 #('Elections', 'general_election'),
                 #('Const_sum', 'constituency'),
                 #('Const_full', 'result'),
-                ('Const_full', 'byelection'),
+                #('Const_full', 'byelection'),
+                ('Const_full', 'winner_only'),
             )
+
+
 
 class Uploader:
 
@@ -317,7 +320,7 @@ class Parser:
             start_date__lte=date,
         )
 
-    def parse_result(self, byelection_run=False):
+    def parse_result(self, byelection_run=False, elected_only=False):
 
         df = self.df
         df.fillna('',axis=1,inplace=True)
@@ -345,16 +348,48 @@ class Parser:
             elif 'B' not in str(year) and not byelection_run:
                 election = Election.objects.get(year=year)
                 constituency = self._get_constituency_at_date(constituency_name, election.date)
-                self.create_constituency_result(election, constituency, sub_df)
+                if not elected_only:
+                    self.create_constituency_result(election, constituency, sub_df)
 
                 for row in sub_df.index:
                     if sub_df.loc[row,'Party'] == 'Turnout':
                         continue
-
-                    num_disqualified = self.create_candidate_result(election, constituency, sub_df, row, num_disqualified)
+                    
+                    if elected_only:
+                        self.create_candidate_result_winner_only(election, constituency, sub_df.loc[row])
+                    else:
+                        num_disqualified = self.create_candidate_result(election, constituency, sub_df, row, num_disqualified)
     
     def parse_byelection(self):
         return self.parse_result(byelection_run=True)
+
+    def parse_winner_only(self):
+        return self.parse_result(elected_only=True)
+
+    def create_candidate_result_winner_only(self, election, constituency, row):
+
+        try:
+            party = Party.objects.get(name=row['Party'])
+        except:
+            party = Party(name=row['Party'],colour="#DCDCDC")
+            party.save()
+
+        try:
+            CandidateResult.objects.get(
+                constituency = constituency,
+                election = election,
+                party = party,
+                candidate = row['Candidate']
+            )
+        except:
+            CandidateResult.objects.create(
+                constituency = constituency,
+                election = election,
+                party = party,
+                candidate = row['Candidate'],
+                elected = True,
+                winner_only = True,
+            )        
 
     def create_candidate_result(self, election, constituency, sub_df, row, num_disqualified, num_elected=None):
 

@@ -4,16 +4,40 @@ GEOJSON_NAME_MAP = {
     'South Swindon':    'Swindon South',
     'Richmond (Yorks)': 'Richmond (Yorkshire)',
     "Ealing Acton and Shepherd's Bush": "Ealing, Acton and Shepherd's Bush",
-    'Angus East': 'East Angus'
+    'Angus East': 'East Angus',
+    'Armagh': 'County Armagh',
+    'Antrim': 'County Antrim',
+    'Down': 'County Down',
+    'Londonderry': 'County Londonderry',
+    'Tyrone': 'County Tyrone',
+    'Fermanagh': 'County Fermanagh',
+    'Donegal': 'County Donegal',
+    'Monaghan': 'County Monaghan',
+    'Leitrim': 'County Leitrim',
+    'Cavan': 'County Cavan',
+    'Mayo': 'County Mayo',
+    'Roscommon': 'County Roscommon',
+    'Longford': 'County Longford',
+    'Meath': 'County Meath',
+    'Kildare': 'County Kildare',
+    'Wicklow': 'County Wicklow',
+    'Tipperary': 'County Tipperary',
+    'Clare': 'County Clare',
+    'Kerry': 'County Kerry',
+    'Carlow': 'Carlow City',
+    'Montgomery': 'Montgomeryshire',
 }
 
 DISENFRANCHISED_CONSTITUENCIES = {
-    '1872': ('Beverley', 'Bridgwater', 'Cashel', 'Sligo Borough'),
+    '1874': ('Beverley', 'Bridgwater', 'Cashel', 'Sligo Borough'),
     '1880': ('Beverley', 'Bridgwater', 'Cashel', 'Sligo Borough'),
     '1859': ('St Albans', 'Sudbury'),
     '1857': ('St Albans', 'Sudbury'),
     '1852': ('St Albans', 'Sudbury'),
     '1847': ('Sudbury',),
+    '1831': ('Grampound',),
+    '1830': ('Grampound',),
+    '1826': ('Grampound',),
 }
 
 
@@ -59,6 +83,14 @@ BOKEH_DISPLAY_TEXT = """
               panel.innerHTML = "<h2>" + cds.data['name'][idx] + "</h2>"
                   + "<p><em>This constituency was disenfranchised prior to the "
                   + election + " election and returned no MPs.</em></p>";
+              return;
+          }
+          if (cds.data['alternating_inactive'][idx]) {
+              panel.innerHTML = "<h2>" + cds.data['name'][idx] + "</h2>"
+                  + "<p><em>This constituency elected MPs at alternating elections. "
+                  + "In the " + election + " election it did not hold a poll &#8212; "
+                  + "its paired constituency <strong>" + cds.data['paired_const'][idx] + "</strong>"
+                  + " sent MPs to Parliament instead.</em></p>";
               return;
           }
           """ + _build_results_html_js(

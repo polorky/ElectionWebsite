@@ -39,12 +39,13 @@ class Constituency(models.Model):
     name = models.CharField(max_length=255)
     alt_name = models.CharField(max_length=255,blank=True,null=True)
     api_names = models.JSONField(default=list, blank=True)
+    hop_name = models.CharField(max_length=255,blank=True,null=True)
     modern_county = models.ManyToManyField(County, related_name='modern_counties')
     historic_county = models.ManyToManyField(County, related_name='historic_counties')
     start_date = models.DateTimeField(default=None,null=True,blank=True)
     end_date = models.DateTimeField(default=None,null=True,blank=True)
     seats = models.IntegerField(default=1)
-    alternating = models.CharField(max_length=4,default=None,null=True,blank=True)
+    alternating = models.CharField(max_length=20,default=None,null=True,blank=True)
 
     # Self-referential relationship for succession
     predecessors = models.ManyToManyField(
@@ -91,6 +92,7 @@ class Election(models.Model):
     endDate = models.DateTimeField(blank=True,null=True)
     turnout_votes = models.FloatField(blank=True,null=True)
     turnout_percent = models.FloatField(blank=True,null=True)
+    alternate = models.IntegerField(default=1)
     notes = models.TextField(blank=True,null=True)
 
     # For general elections only
@@ -124,6 +126,20 @@ class Coalition(models.Model):
     def __str__(self):
         return self.name
 
+class Person(models.Model):
+    HOP_BASE = 'https://www.historyofparliamentonline.org/volume/'
+
+    name    = models.TextField()
+    hop_id  = models.CharField(max_length=150, unique=True, null=True, blank=True)
+    elected = models.BooleanField(default=False)
+
+    @property
+    def hop_url(self):
+        return self.HOP_BASE + self.hop_id if self.hop_id else ''
+
+    def __str__(self):
+        return self.name
+
 class ConstituencyResult(models.Model):
     '''
     Class to record constituency-level results for an election
@@ -147,15 +163,21 @@ class CandidateResult(models.Model):
     election = models.ForeignKey(Election, on_delete=models.CASCADE)    
     party = models.ForeignKey(Party, on_delete=models.CASCADE)
     candidate = models.CharField(max_length=100)
+    person = models.ForeignKey(Person, null=True, blank=True, on_delete=models.SET_NULL)
     votes = models.IntegerField(blank=True,null=True)
     percent = models.FloatField(blank=True,null=True)
     unopposed = models.BooleanField(default=False)
     elected = models.BooleanField(default=False)
     disqualified = models.BooleanField(default=False)
+    winner_only = models.BooleanField(default=False)
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):
         return f'{self.election.type} Result {self.election.year if self.election.type == "GE" else self.election.date} - {self.constituency.name} - {self.candidate} ({self.party.name})'
+
+    @property
+    def candidate_display(self):
+        return self.person or self.candidate
 
 class APIValidationRecord(models.Model):
     STATUS_CHOICES = [

@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}HOP Import — {{ constituency_name }}{% endblock %}
+{% block content %}
+<style>
+  .hop-nav { font-size:13px; margin-bottom:14px; }
+  .hop-nav a { color:#1976d2; text-decoration:none; }
+  .hop-nav a:hover { text-decoration:underline; }
+
+  .hop-error { background:#ffebee; border:1px solid #ef9a9a; border-radius:4px;
+               padding:10px 14px; color:#b71c1c; margin:12px 0; }
+
+  .hop-success { background:#e8f5e9; border:1px solid #a5d6a7; border-radius:4px;
+                 padding:12px 16px; margin:12px 0; }
+  .hop-success h3 { margin:0 0 8px; color:#1b5e20; }
+  .stat-grid { display:flex; gap:24px; flex-wrap:wrap; }
+  .stat-cell { text-align:center; }
+  .stat-cell .n { font-size:28px; font-weight:700; color:#1b5e20; }
+  .stat-cell .lbl { font-size:11px; color:#555; }
+
+  h2.elec-head {
+    font-size:16px; margin:22px 0 6px;
+    padding:6px 10px; border-radius:4px; background:#f5f5f5;
+    border-left:4px solid #1976d2; display:flex; align-items:center; gap:10px;
+  }
+  h2.elec-head .badge {
+    font-size:11px; padding:2px 8px; border-radius:10px; font-weight:normal;
+  }
+  .badge-ge  { background:#bbdefb; color:#0d47a1; }
+  .badge-be  { background:#fff9c4; color:#f57f17; }
+  .badge-new { background:#c8e6c9; color:#1b5e20; }
+  .badge-found { background:#e8eaf6; color:#283593; }
+
+  table.cand-table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:8px; }
+  table.cand-table th {
+    background:#eeeeee; padding:5px 8px; text-align:left;
+    font-size:11px; text-transform:uppercase; letter-spacing:.4px; border-bottom:2px solid #ddd;
+  }
+  table.cand-table td { padding:5px 8px; border-bottom:1px solid #f0f0f0; vertical-align:top; }
+  table.cand-table tr:hover td { background:#fafafa; }
+
+  .act-create { color:#2e7d32; font-weight:600; }
+  .act-update { color:#e65100; font-weight:600; }
+  .act-skip   { color:#999; }
+
+  .change-tag { font-size:11px; background:#fff3e0; color:#e65100;
+                border:1px solid #ffcc80; border-radius:3px; padding:1px 5px; margin:0 2px; }
+  .elected-yes { color:#1b5e20; font-weight:600; }
+  .elected-no  { color:#999; }
+  .disq-yes    { color:#b71c1c; font-weight:600; }
+  .party-src   { font-size:10px; color:#aaa; margin-left:4px; }
+
+  .const-result-box {
+    font-size:12px; background:#f9f9f9; border:1px solid #e0e0e0;
+    border-radius:4px; padding:6px 10px; margin-bottom:10px;
+    display:flex; gap:20px; flex-wrap:wrap; align-items:center;
+  }
+  .const-result-box strong { font-size:13px; }
+
+  .commit-bar {
+    position:sticky; bottom:0; background:#fff; border-top:1px solid #ddd;
+    padding:10px 0; margin-top:16px; display:flex; align-items:center; gap:12px;
+  }
+  .btn-commit {
+    background:#1976d2; color:#fff; border:none; border-radius:4px;
+    padding:9px 22px; font-size:14px; font-weight:600; cursor:pointer;
+  }
+  .btn-commit:hover { background:#1565c0; }
+  .btn-back { font-size:13px; color:#555; text-decoration:none; }
+  .btn-back:hover { color:#1976d2; }
+
+  .hop-ext-link { font-size:12px; color:#888; margin-left:6px; }
+  .hop-ext-link a { color:#1976d2; }
+
+  .person-create { color:#6a1b9a; font-size:12px; }
+  .person-link   { color:#283593; font-size:12px; }
+  .match-quality { font-size:10px; color:#aaa; }
+</style>
+
+<div class="hop-nav">
+  <a href="{% url 'hop_import_list' %}">← All constituencies</a>
+</div>
+
+<h1>{{ constituency_name }}
+  <span class="hop-ext-link">(<a href="{{ hop_url }}" target="_blank" rel="noopener">HOP page ↗</a>)</span>
+</h1>
+
+{% if error %}
+  <div class="hop-error">{{ error }}</div>
+
+{% elif committed %}
+  <div class="hop-success">
+    <h3>Committed successfully</h3>
+    <div class="stat-grid">
+      <div class="stat-cell"><div class="n">{{ stats.crs_created }}</div><div class="lbl">CandidateResults created</div></div>
+      <div class="stat-cell"><div class="n">{{ stats.crs_updated }}</div><div class="lbl">CandidateResults updated</div></div>
+      <div class="stat-cell"><div class="n">{{ stats.persons_created }}</div><div class="lbl">Person records created</div></div>
+      <div class="stat-cell"><div class="n">{{ stats.elections_created }}</div><div class="lbl">By-elections created</div></div>
+      <div class="stat-cell"><div class="n">{{ stats.const_results_created }}</div><div class="lbl">ConstituencyResults created</div></div>
+      <div class="stat-cell"><div class="n">{{ stats.const_results_updated }}</div><div class="lbl">ConstituencyResults updated</div></div>
+    </div>
+  </div>
+  <a class="hop-nav" href="{% url 'hop_import_list' %}">← Back to constituency list</a>
+
+{% elif preview %}
+  {% if preview.const_error %}
+    <div class="hop-error">{{ preview.const_error }}</div>
+  {% endif %}
+
+  {% if preview.constituency %}
+    <p style="font-size:13px;color:#555;margin-bottom:4px;">
+      DB match: <strong>{{ preview.constituency.name }}</strong>
+      (id={{ preview.constituency.id }}, seats={{ preview.constituency.seats }})
+    </p>
+  {% endif %}
+
+  {% for elec in preview.elections %}
+    <h2 class="elec-head">
+      {{ elec.date }}
+      {% if elec.etype == 'GE' %}
+        <span class="badge badge-ge">General Election</span>
+      {% else %}
+        <span class="badge badge-be">By-election</span>
+      {% endif %}
+      {% if elec.election_action == 'found' %}
+        <span class="badge badge-found">Election found ({{ elec.election.year|default:elec.date }})</span>
+      {% elif elec.election_action == 'create' %}
+        <span class="badge badge-new">By-election will be created</span>
+      {% elif elec.election_action == 'error' %}
+        <span style="color:#b71c1c;font-size:12px;">⚠ {{ elec.election_error }}</span>
+      {% endif %}
+    </h2>
+
+    {% if elec.be_notes %}
+      <p style="font-size:12px;color:#555;margin:4px 0 8px;">Notes: {{ elec.be_notes }}</p>
+    {% endif %}
+
+    <table class="cand-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Candidate</th>
+          <th>Party</th>
+          <th>Votes</th>
+          <th>%</th>
+          <th>Elected</th>
+          <th>Disqualified</th>
+          <th>Unopposed</th>
+          <th>Person</th>
+          <th>Changes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in elec.candidates %}
+        <tr>
+          <td>
+            {% if c.action == 'create' %}
+              <span class="act-create">CREATE</span>
+            {% elif c.action == 'update' %}
+              <span class="act-update">UPDATE</span>
+              {% if c.match_quality %}
+                <br><span class="match-quality">matched by {{ c.match_quality }}</span>
+              {% endif %}
+            {% endif %}
+          </td>
+          <td>
+            {{ c.display_name }}
+            {% if c.action == 'update' and 'candidate' in c.changes %}
+              <br><span style="font-size:11px;color:#999;">was: {{ c.existing_cr.candidate }}</span>
+            {% endif %}
+            {% if c.hop_id %}
+              <br><a href="https://www.historyofparliamentonline.org/volume/{{ c.hop_id }}"
+                     style="font-size:10px;color:#90a4ae;" target="_blank" rel="noopener">HOP ↗</a>
+            {% endif %}
+          </td>
+          <td>
+            {{ c.party.name }}
+            <span class="party-src">({{ c.party_source }})</span>
+          </td>
+          <td>{{ c.votes|default:"—" }}</td>
+          <td>{{ c.percent|default:"—" }}</td>
+          <td>{% if c.elected %}<span class="elected-yes">✓</span>{% else %}<span class="elected-no">—</span>{% endif %}</td>
+          <td>{% if c.disqualified %}<span class="disq-yes">✓</span>{% else %}—{% endif %}</td>
+          <td>{% if c.unopposed %}✓{% else %}—{% endif %}</td>
+          <td>
+            {% if c.person_action == 'create' %}
+              <span class="person-create">Create new</span>
+            {% elif c.person_action == 'link' %}
+              <span class="person-link">Link: {{ c.person.name }}</span>
+            {% elif c.person_action == 'link_by_name' %}
+              <span class="person-link" style="font-style:italic;" title="Matched by name — no hop_id">Name match: {{ c.person.name }}</span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% for ch in c.changes %}
+              <span class="change-tag">{{ ch }}</span>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if elec.const_result %}
+      <div class="const-result-box">
+        <strong>ConstituencyResult</strong>
+        <span>Action: <strong>{{ elec.const_result.action|upper }}</strong></span>
+        <span>Total votes: {{ elec.const_result.total_votes }}</span>
+        {% if elec.const_result.notes %}
+          <span>Notes: {{ elec.const_result.notes }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+  {% empty %}
+    <p style="color:#999;">No election rows were parsed from this HOP page.</p>
+  {% endfor %}
+
+  {% if preview.constituency %}
+    <div class="commit-bar">
+      <form method="post">
+        {% csrf_token %}
+        <button class="btn-commit" type="submit"
+                onclick="return confirm('Commit these changes to the database?')">
+          Commit to database
+        </button>
+      </form>
+      <a class="btn-back" href="{% url 'hop_import_list' %}">← Back to list</a>
+    </div>
+  {% endif %}
+
+{% endif %}
+{% endblock %}
