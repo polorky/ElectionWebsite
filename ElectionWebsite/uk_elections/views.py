@@ -2,6 +2,7 @@ from collections import deque, defaultdict
 from .models import *
 from .upload import Uploader
 from .map_functions import ElectionMap
+from .data_cache import get_svg_data, get_hex_data
 from .parliament_api import TurnoutQuery
 from .validation import compare_constituency, has_any_diff
 from .constants import GEOJSON_NAME_MAP
@@ -12,7 +13,6 @@ from django.utils import timezone
 import io
 import json
 import pickle
-import pandas as pd
 from datetime import datetime
 from bokeh.plotting import figure
 from bokeh.embed import components
@@ -36,12 +36,12 @@ def electionView(request, election, map_type='None'):
         em = ElectionMap(request, election, map_type)
         context = em.context
 
+    context['active_nav'] = 'elections'
     return render(request, "uk_elections/elections.html", context)
 
 # Module-level caches — populated on first use, shared across requests within a worker process.
 _geojson_lookup = None   # {constituency_name: geometry_json_string}
 _mini_svg_cache = {}     # {constituency_name: svg_string}
-_svg_data = None         # raw pickle dict, keyed by election.map value
 
 
 def _build_geojson_lookup():
@@ -65,18 +65,6 @@ def _build_geojson_lookup():
                 seen.add(mapped_name)
 
 
-def _get_svg_data():
-    global _svg_data
-    if _svg_data is None:
-        pkl_path = os.path.join(app_static_dir, 'uk_svg_data_ws')
-        try:
-            with open(pkl_path, 'rb') as f:
-                _svg_data = pickle.load(f)
-        except Exception:
-            _svg_data = {}
-    return _svg_data
-
-
 def _get_constituency_geojson(name):
     global _geojson_lookup
     if _geojson_lookup is None:
@@ -88,7 +76,7 @@ def _get_constituency_mini_svg(name):
     if name in _mini_svg_cache:
         return _mini_svg_cache[name]
 
-    svgs = _get_svg_data()
+    svgs = get_svg_data()
     elections = Election.objects.filter(type='GE', map__isnull=False).exclude(map='').order_by('-date')
     xs_data = ys_data = None
     for elec in elections:
@@ -157,82 +145,81 @@ def constituencyView(request, const):
             'pageview': 'home',
             'consts_by_letter': consts_by_letter,
             'first_letter': first_letter,
+            'active_nav': 'constituencies',
         })
 
     try:
         constObjs = Constituency.objects.filter(name=const)
     except:
-        return render(request, "uk_elections/constituencies.html", {'pageview':'noconst'})
+        return render(request, "uk_elections/constituencies.html", {'pageview':'noconst', 'active_nav': 'constituencies'})
 
-    parties = Party.objects.all()
-    colours = {p.name:p.colour for p in parties}
+    all_results = CandidateResult.objects.filter(constituency__in=constObjs)
+    all_elections = list(set(x.election for x in all_results))
+    all_elections = sorted(all_elections, key=lambda x: x.date, reverse=True)
 
-    results = pd.DataFrame(list(CandidateResult.objects.filter(constituency__in=constObjs).order_by('-votes','-election__date').values('election__type','election__year','election__date','candidate','party__name','votes','percent','unopposed','elected')))
-    turnouts = pd.DataFrame(list(ConstituencyResult.objects.filter(constituency__in=constObjs).order_by('-election__date').values('election__type','election__year','election__date','turnout_votes','turnout_percent')))
-
-    if len(results) == 0:
-        context = {'pageview':'const',
-                   'consts': constObjs,
-                   'results': [],}
-        return render(request, "uk_elections/constituencies.html", context=context)
-
-    results.rename(columns={'party__name':'party','election__type':'type','election__date':'date','election__year':'election'},inplace=True)
-    results["colour"] = results.party.apply(lambda x: colours[x])
-    turnouts.rename(columns={'election__type':'type','election__date':'date','election__year':'election'},inplace=True)
-
-    results.sort_values(by=['votes','date'],ascending=False,inplace=True)
+    sep_results = []
+    
+    for election in all_elections:
+            crs = all_results.filter(election=election).order_by('-votes')
+            res_dict = {'election':election, 
+                        'results':[], 
+                        'notes':[election.notes,] if election.notes else []}
+            for cr in crs:
+                res_dict['results'].append(cr)
+                if cr.notes:
+                    res_dict['notes'].append(cr.notes)
+            const_res = ConstituencyResult.objects.filter(constituency__in=constObjs, election=election)
+            if const_res:
+                res_dict['turnout'] = const_res[0]
+                if const_res[0].notes:
+                    res_dict['notes'].append(const_res[0].notes)
+            sep_results.append(res_dict)
 
     # Vote share history chart (GE elections with known percentages)
     vs_script = vs_div = ''
-    ge = results[results['type'] == 'GE'].copy()
-    unopposed_mask = ge['unopposed'].fillna(False).astype(bool) & ge['elected'].astype(bool)
-    ge.loc[unopposed_mask, 'percent'] = 100.0
-    ge = ge[ge['percent'].notna()].copy()
-    if not ge.empty:
-        ge['year'] = pd.to_datetime(ge['date']).dt.year
+    ge_elections = [e for e in all_elections if e.type == 'GE']
+    if ge_elections:
+        all_years = sorted(float(e.year.split()[0]) for e in ge_elections)
+        party_data = {}
+        for election in ge_elections:
+            for cr in all_results.filter(election=election):
+                pname = cr.party.name
+                pct = 100.0 if (cr.unopposed and cr.elected) else cr.percent
+                if pct is None:
+                    continue
+                if pname not in party_data:
+                    party_data[pname] = {'colour': cr.party.colour, 'years': {}}
+                party_data[pname]['years'][float(election.year.split()[0])] = float(pct)
 
-        p_vs = figure(
-            height=320,
-            tools="hover,reset,save",
-            x_axis_label='Year', y_axis_label='Vote Share (%)',
-            sizing_mode="stretch_width",
-        )
-        p_vs.background_fill_color = None
-        p_vs.border_fill_color = None
-        p_vs.outline_line_color = None
-        p_vs.xgrid.grid_line_color = '#e8e8e8'
-        p_vs.ygrid.grid_line_color = '#e8e8e8'
-        p_vs.xaxis.ticker = FixedTicker(ticks=sorted(ge['year'].unique().tolist()))
-        p_vs.xaxis.major_label_orientation = 0.785  # 45 degrees
+        if party_data:
+            p_vs = figure(
+                height=320,
+                tools="hover,reset,save",
+                x_axis_label='Year', y_axis_label='Vote Share (%)',
+                sizing_mode="stretch_width",
+            )
+            p_vs.background_fill_color = None
+            p_vs.border_fill_color = None
+            p_vs.outline_line_color = None
+            p_vs.xgrid.grid_line_color = '#e8e8e8'
+            p_vs.ygrid.grid_line_color = '#e8e8e8'
+            p_vs.xaxis.ticker = FixedTicker(ticks=all_years)
+            p_vs.xaxis.major_label_orientation = 0.785
 
-        all_years = sorted(ge['year'].unique().tolist())
-        for party, grp in ge.groupby('party'):
-            grp = grp.sort_values('year')
-            party_pcts = dict(zip(grp['year'], grp['percent']))
-            colour = grp['colour'].iloc[0]
-            pcts = [float(party_pcts.get(yr, float('nan'))) for yr in all_years]
-            src = ColumnDataSource(dict(
-                year=all_years,
-                pct=pcts,
-                party=[party] * len(all_years),
-            ))
-            p_vs.line('year', 'pct', color=colour, line_width=2, source=src)
-            p_vs.scatter('year', 'pct', color=colour, size=6, source=src)
+            for party, data in party_data.items():
+                colour = data['colour']
+                pcts = [float(data['years'].get(yr, float('nan'))) for yr in all_years]
+                src = ColumnDataSource(dict(
+                    year=all_years,
+                    pct=pcts,
+                    party=[party] * len(all_years),
+                ))
+                p_vs.line('year', 'pct', color=colour, line_width=2, source=src)
+                p_vs.scatter('year', 'pct', color=colour, size=6, source=src)
 
-        p_vs.hover.tooltips = [('Party', '@party'), ('Year', '@year'), ('Vote Share', '@pct{0.1f}%')]
-        p_vs.hover.mode = 'mouse'
-        vs_script, vs_div = components(p_vs)
-
-    sep_results = []
-    allelections = list(set([(results.loc[row,'election'],results.loc[row,'date']) for row in results.index]))
-    allelections.sort(key=lambda x: x[1],reverse=True)
-
-    for election in allelections:
-
-            sep_results.append(
-                                (results[results.election == election[0]].to_dict('records'),
-                                turnouts[turnouts.election == election[0]].to_dict('records'))
-                                )
+            p_vs.hover.tooltips = [('Party', '@party'), ('Year', '@year'), ('Vote Share', '@pct{0.1f}%')]
+            p_vs.hover.mode = 'mouse'
+            vs_script, vs_div = components(p_vs)
 
     context = {'pageview':'const',
                'consts': constObjs,
@@ -240,7 +227,8 @@ def constituencyView(request, const):
                'vs_div': vs_div,
                'vs_script': vs_script,
                'mini_svg': _get_constituency_mini_svg(const),
-               'mini_geojson': _get_constituency_geojson(const),}
+               'mini_geojson': _get_constituency_geojson(const),
+               'active_nav': 'constituencies',}
     
     return render(request, "uk_elections/constituencies.html", context=context)
 
@@ -285,6 +273,7 @@ def boundaryChangesView(request):
     return render(request, 'uk_elections/boundary_changes.html', {
         'pageview': 'changes',
         'changes': changes,
+        'active_nav': 'boundaries',
     })
 
 def countyView(request, county):
@@ -301,12 +290,12 @@ def countyView(request, county):
                 groups['England'].append(c.name)
         counties_by_country = {k: v for k, v in groups.items() if v}
 
-        return render(request, "uk_elections/county.html", {'pageview':'home', 'counties_by_country': counties_by_country})
+        return render(request, "uk_elections/county.html", {'pageview':'home', 'counties_by_country': counties_by_country, 'active_nav': 'counties'})
 
     try:
         countyObj = County.objects.get(name=county)
     except County.DoesNotExist:
-        return render(request, "uk_elections/county.html", {'pageview':'nocounty'})
+        return render(request, "uk_elections/county.html", {'pageview':'nocounty', 'active_nav': 'counties'})
 
     modern_consts = list(
         countyObj.modern_counties.values_list('name', flat=True).order_by('name').distinct()
@@ -427,10 +416,46 @@ def countyView(request, county):
         'historic_consts': historic_consts,
         'tl_script':      tl_script,
         'tl_div':         tl_div,
+        'active_nav':     'counties',
     })
 
+def peopleView(request, person):
+    sep_results = []
+    if person == 'home':
+        pageview = 'home'
+        person = Person.objects.all()
+    else:
+        try:
+            person = Person.objects.get(id=person)
+            pageview = 'person'
+            all_results = CandidateResult.objects.filter(person=person)
+
+            all_elections = list(set(x.election for x in all_results))
+            all_elections = sorted(all_elections, key=lambda x: x.date, reverse=True)
+            
+            for election in all_elections:
+                    crs = all_results.filter(election=election).order_by('-votes')
+                    res_dict = {'election':election, 
+                                'results':[], 
+                                'notes':[election.notes,] if election.notes else []}
+                    for cr in crs:
+                        res_dict['results'].append(cr)
+                        if cr.notes:
+                            res_dict['notes'].append(cr.notes)
+                    const_res = ConstituencyResult.objects.filter(constituency=crs[0].constituency, election=election)
+                    if const_res:
+                        res_dict['turnout'] = const_res[0]
+                        if const_res[0].notes:
+                            res_dict['notes'].append(const_res[0].notes)
+                    sep_results.append(res_dict)
+
+        except:
+            pageview = 'notfound'
+
+    return render(request, 'uk_elections/people.html', {'pageview':pageview, 'person':person, 'results':sep_results, 'active_nav': 'people'})
+
 def sourcesView(request):
-    return render(request, "uk_elections/sources.html")
+    return render(request, "uk_elections/sources.html", {'active_nav': 'sources'})
 
 ########## FUNCTIONS AND VIEWS TO PARSE RAW DATA ##########
 
@@ -597,6 +622,7 @@ def hexeditor(request):
 
 
 def hexeditor_save(request):
+    import pandas as pd
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
 
@@ -714,6 +740,7 @@ def siteadmin(request):
 def parliamentapi(request):
 
     if request.method == 'POST':
+        import pandas as pd
         file = request.FILES.get('file')
         if not file:
             return render(request, "uk_elections/parliamentapi.html", {'error': 'No file uploaded.'})

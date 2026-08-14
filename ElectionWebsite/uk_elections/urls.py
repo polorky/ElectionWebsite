@@ -20,5 +20,6 @@ urlpatterns = [
     path('validate/<int:election_id>/', views.validate_election, name='validate_election'),
     path('validate/<int:election_id>/<int:constituency_id>/', views.validate_constituency, name='validate_constituency'),
     path('boundaries', views.boundaryChangesView, name='boundaries'),
-    path('', TemplateView.as_view(template_name="uk_elections/ukhome.html"), name='home'),
+    path('people/<str:person>', views.peopleView, name='people'),
+    path('', TemplateView.as_view(template_name="uk_elections/ukhome.html", extra_context={'active_nav': 'home'}), name='home'),
 ]

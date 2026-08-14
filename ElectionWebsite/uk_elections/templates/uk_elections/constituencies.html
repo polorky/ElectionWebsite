@@ -2,13 +2,6 @@
 
 {% block title %}Constituencies{% endblock title %}
 
-{% block submenubar %}
-  <li class="nav"><a class="nav" href="/uk">UK Home</a></li>
-  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
-  <li class="nav"><a class="nav active" href="/uk/constituencies/home">Constituencies</a></li>
-  <li class="nav"><a class="nav" href="/uk/counties/home">Counties</a></li>
-  <li class="nav"><a class="nav" href="/uk/boundaries">Boundary Changes</a></li>
-{% endblock submenubar %}
 
 {% block content %}
 
@@ -149,33 +142,48 @@
 
   <h2>Election Results</h2>
   {% for result in results %}
-    {% if result.0.0.type == 'GE' %}
-      <h3><a href="/uk/elections/{{ result.0.0.election }}/map">{{ result.0.0.election }} General Election</a></h3>
+    {% if result.election.type == 'GE' %}
+      <h3><a href="/uk/elections/{{ result.election }}/map">{{ result.election }}</a></h3>
     {% else %}
-      <h3>By-Election {{ result.0.0.election }}</h3>
-      <p><b>Date Held:</b> {{ result.0.0.date|date:'jS F Y' }}</p>
-      <p><b>Outgoing MP:</b> {{ result.0.0.byelection__oldMP }}</p>
-      <p style="width:50%;"><b>Notes:</b> {{ result.0.0.byelection__notes }}</p>
+      <h3>By-Election {{ result.election.date|date:'Y' }}</h3>
+      <p><b>Date Held:</b> {{ result.election.date|date:'jS F Y' }}</p>
+      <p><b>Outgoing MP:</b> {{ result.election.oldMP }}</p>
+      <p style="width:50%;"><b>Notes:</b> {{ result.election.notes }}</p>
     {% endif %}
-    {% if result.0.0.unopposed %}
+    {% if result.results.0.unopposed %}
       <table id="table">
         <tr><th colspan="2">Party</th><th>Candidate</th><th>Elected</th></tr>
-        {% for row in result.0 %}
-          <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td style="color:green;background-color:lightgreen;"><b>Unopposed</b></td></tr>
+        {% for row in result.results %}
+          <tr>
+            <td style="background-color:{{ row.party.colour }};">  </td>
+            <td>{{ row.party }}</td>
+            <td>{% if row.person %}<a href="/uk/people/{{ row.person.id }}"  target="_blank">{{ row.candidate }}</a>{% else %}{{ row.candidate }}{% endif %}</td>
+            <td style="color:green;background-color:lightgreen;"><b>Unopposed</b></td>
+          </tr>
         {% endfor %}
       </table>
     {% else %}
       <table id="table">
         <tr><th colspan="2">Party</th><th>Candidate</th><th>Votes</th><th>Percent</th><th>Elected</th></tr>
-        {% for row in result.0 %}
-          {% if row.elected %}
-            <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td>{{ row.votes }}</td><td>{{ row.percent }}</td><td style="color:green;background-color:lightgreen;"><b>&#10003;</b></td></tr>
-          {% else %}
-            <tr><td style="background-color:{{ row.colour }};">  </td><td>{{ row.party }}</td><td>{{ row.candidate }}</td><td>{{ row.votes }}</td><td>{{ row.percent }}</td><td style="color:red;background-color:pink;"><b>X</b></td></tr>
-          {% endif %}
+        {% for row in result.results %}
+          <tr>
+            <td style="background-color:{{ row.party.colour }};">  </td>
+            <td>{{ row.party }}</td>
+            <td>{% if row.person %}<a href="/uk/people/{{ row.person.id }}" target="_blank">{{ row.candidate }}</a>{% else %}{{ row.candidate }}{% endif %}</td>
+            <td>{{ row.votes }}</td>
+            <td>{{ row.percent }}</td>
+            {% if row.elected %}
+              <td style="color:green;background-color:lightgreen;"><b>&#10003;</b></td>
+            {% else %}
+              <td style="color:red;background-color:pink;"><b>X</b></td></tr>
+            {% endif %}
+          </tr>            
         {% endfor %}
-        <tr><th colspan="3">Turnout</th><th>{{ result.1.0.votes }}</th><th>{{ result.1.0.percent }}</th><th></th></tr>
+        <tr><th colspan="3">Turnout</th><th>{{ result.turnout.votes }}</th><th>{{ result.turnout.percent }}</th><th></th></tr>
       </table>
+      {% for note in result.notes %}
+        <p>{{ note }}</p>
+      {% endfor %}
     {% endif %}
   {% endfor %}
 

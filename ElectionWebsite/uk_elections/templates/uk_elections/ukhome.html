@@ -9,13 +9,13 @@
 {% endblock menubar %}
 
 {% block submenubar %}
-  <li class="nav"><a class="nav active" href="/uk">UK Home</a></li>
-  <li class="nav"><a class="nav" href="/uk/elections/home">Elections</a></li>
-  <li class="nav"><a class="nav" href="/uk/constituencies/home">Constituencies</a></li>
-  <li class="nav"><a class="nav" href="/uk/counties/home">Counties</a></li>
-  <li class="nav"><a class="nav" href="/uk/boundaries">Boundary Changes</a></li>
-  <li class="nav"><a class="nav" href="/uk/sources">Sources</a></li>
-
+  <li class="nav"><a class="nav {% if active_nav == 'home' %}active{% endif %}" href="/uk">UK Home</a></li>
+  <li class="nav"><a class="nav {% if active_nav == 'elections' %}active{% endif %}" href="/uk/elections/home">Elections</a></li>
+  <li class="nav"><a class="nav {% if active_nav == 'constituencies' %}active{% endif %}" href="/uk/constituencies/home">Constituencies</a></li>
+  <li class="nav"><a class="nav {% if active_nav == 'counties' %}active{% endif %}" href="/uk/counties/home">Counties</a></li>
+  <li class="nav"><a class="nav {% if active_nav == 'people' %}active{% endif %}" href="/uk/people/home">People</a></li>
+  <li class="nav"><a class="nav {% if active_nav == 'boundaries' %}active{% endif %}" href="/uk/boundaries">Boundary Changes</a></li>
+  <li class="nav"><a class="nav {% if active_nav == 'sources' %}active{% endif %}" href="/uk/sources">Sources</a></li>
 {% endblock submenubar %}
 
 {% block content %}

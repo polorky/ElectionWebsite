@@ -1,0 +1,75 @@
+{% extends "uk_elections/ukhome.html" %}
+
+{% block title %}Elections{% endblock title %}
+
+
+{% block content %}
+
+{% if pageview == 'home' %}
+
+    <h1>MPs and Selected Candidates</h1>
+
+    {% for p in person %}
+        <p>{{ p.name }}</p>
+    {% endfor %}
+    
+{% elif pageview == 'notfound' %}
+
+    <p>Person not found.</p>
+
+{% else %}
+
+    <h1>{{ person.name }}</h1>
+
+    <h3>History of Parliament Biography: <a href="{{ person.hop_url }}">Link</a></h3>
+
+    <h2>Election Results</h2>
+    {% for result in results %}
+        {% if result.election.type == 'GE' %}
+        <h3><a href="/uk/constituencies/{{ result.results.0.constituency.name }}">{{ result.results.0.constituency.name }}</a> - <a href="/uk/elections/{{ result.election }}/map">{{ result.election }}</a></h3>
+        {% else %}
+        <h3><a href="/uk/constituencies/{{ result.results.0.constituency.name }}"></a>{{ result.results.0.constituency.name }}</a> - By-Election {{ result.election.date|date:'Y' }}</h3>
+        <p><b>Date Held:</b> {{ result.election.date|date:'jS F Y' }}</p>
+        <p><b>Outgoing MP:</b> {{ result.election.oldMP }}</p>
+        <p style="width:50%;"><b>Notes:</b> {{ result.election.notes }}</p>
+        {% endif %}
+        {% if result.results.0.unopposed %}
+        <table id="table">
+            <tr><th colspan="2">Party</th><th>Candidate</th><th>Elected</th></tr>
+            {% for row in result.results %}
+            <tr>
+                <td style="background-color:{{ row.party.colour }};">  </td>
+                <td>{{ row.party }}</td>
+                <td>{% if row.person %}<a href="/uk/people/{{ row.person.id }}"  target="_blank">{{ row.candidate }}</a>{% else %}{{ row.candidate }}{% endif %}</td>
+                <td style="color:green;background-color:lightgreen;"><b>Unopposed</b></td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <table id="table">
+            <tr><th colspan="2">Party</th><th>Candidate</th><th>Votes</th><th>Percent</th><th>Elected</th></tr>
+            {% for row in result.results %}
+            <tr>
+                <td style="background-color:{{ row.party.colour }};">  </td>
+                <td>{{ row.party }}</td>
+                <td>{% if row.person %}<a href="/uk/people/{{ row.person.id }}" target="_blank">{{ row.candidate }}</a>{% else %}{{ row.candidate }}{% endif %}</td>
+                <td>{{ row.votes }}</td>
+                <td>{{ row.percent }}</td>
+                {% if row.elected %}
+                <td style="color:green;background-color:lightgreen;"><b>&#10003;</b></td>
+                {% else %}
+                <td style="color:red;background-color:pink;"><b>X</b></td></tr>
+                {% endif %}
+            </tr>            
+            {% endfor %}
+            <tr><th colspan="3">Turnout</th><th>{{ result.turnout.votes }}</th><th>{{ result.turnout.percent }}</th><th></th></tr>
+        </table>
+        {% for note in result.notes %}
+            <p>{{ note }}</p>
+        {% endfor %}
+        {% endif %}
+    {% endfor %}
+    
+{% endif %}
+
+{% endblock %}

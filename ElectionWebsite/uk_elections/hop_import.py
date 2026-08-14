@@ -6,6 +6,9 @@ import re
 import sys
 from datetime import date as date_cls, datetime as dt
 
+import requests
+from bs4 import BeautifulSoup as _BS
+
 from django.db import transaction
 from django.utils.timezone import make_aware
 
@@ -15,7 +18,6 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from scrape_hop_constituencies import (
-    fetch_page,
     parse_elections_table,
     hop_id_from_url,
 )
@@ -176,11 +178,15 @@ def preview_person(hop_id, name, elected_flag):
     return (p, 'link') if p else (None, 'create')
 
 
-def _party_from_cr_name(name):
+def _party_from_constituency_crs(name, constituency):
     """
-    Find a party by name-matching directly against existing CandidateResults.
-    Returns (Party, source) only when all matching CRs agree on a single party.
+    Find party by name-matching within the same constituency's existing CandidateResults.
+    Uses constituency__name so all Constituency records with this name are searched,
+    regardless of which date-range record was used when the data was imported.
+    Returns (Party, source) only when all name-matched CRs agree on a single party.
     """
+    if not constituency:
+        return None, None
     surname = _core_surname(name)
     if not surname:
         return None, None
@@ -189,7 +195,9 @@ def _party_from_cr_name(name):
         return None, None
     crs = [
         cr for cr in (CandidateResult.objects
-                      .filter(candidate__icontains=surname)
+                      .filter(constituency__name=constituency.name,
+                              candidate__icontains=surname)
+                      .exclude(party__isnull=True)
                       .exclude(party__name='Independent')
                       .select_related('party'))
         if sig <= _sig_words(cr.candidate) or _sig_words(cr.candidate) <= sig
@@ -198,36 +206,130 @@ def _party_from_cr_name(name):
         return None, None
     parties = {cr.party_id for cr in crs}
     if len(parties) == 1:
-        return crs[0].party, 'cr_name_match'
+        return crs[0].party, 'constituency_name_match'
     return None, None
 
 
-def _party_from_hop_page(hop_id):
-    """Fetch the candidate's HOP member page and look for a known party name."""
-    if not hop_id:
-        return None, None
-    url = f'https://www.historyofparliamentonline.org/volume/{hop_id}'
-    try:
-        soup = fetch_page(url)
-    except Exception:
-        return None, None
+def _resolve_old_mp(constituency, rows):
+    """
+    Return the outgoing MP's name for a by-election.
+    Priority: hop_id lookup → CandidateResult surname match (elected only) → raw surname.
+    """
+    for row in rows:
+        ex_mp = (row.get('Ex-MP') or '').strip()
+        if not ex_mp:
+            continue
+        # hop_id contains '/' (e.g. '1820-1832/member/slug')
+        if '/' in ex_mp:
+            person = Person.objects.filter(hop_id=ex_mp).first()
+            if person:
+                return person.name
+            # hop_id known but Person not yet created — use slug as fallback surname
+            ex_mp = ex_mp.rsplit('/', 1)[-1]  # last segment of path
+        # Surname string — search elected CandidateResults for this constituency
+        cr = (CandidateResult.objects
+              .filter(constituency__name=constituency.name,
+                      candidate__icontains=ex_mp,
+                      elected=True)
+              .order_by('-election__date')
+              .first())
+        if cr:
+            return cr.candidate
+        return ex_mp.title()  # plain surname as last resort
+    return ''
+
+
+_WIKI_CACHE = {}  # constituency_name → BeautifulSoup or None
+
+_WIKI_SUFFIXES = [
+    '_(constituency)',
+    '_(UK_Parliament_constituency)',
+    '_(UK_parliament_constituency)',
+    '_constituency',
+]
+
+_WIKI_HEADERS = {'User-Agent': 'Mozilla/5.0 (election research; contact schofieldmark@gmail.com)'}
+
+
+def _fetch_wikipedia_page(constituency_name):
+    """Fetch and cache the Wikipedia page for a constituency, trying common URL patterns."""
+    if constituency_name in _WIKI_CACHE:
+        return _WIKI_CACHE[constituency_name]
+    base = constituency_name.replace(' ', '_')
+    soup = None
+    for suffix in _WIKI_SUFFIXES:
+        url = f'https://en.wikipedia.org/wiki/{base}{suffix}'
+        try:
+            r = requests.get(url, timeout=15, headers=_WIKI_HEADERS)
+            if r.status_code == 200:
+                soup = _BS(r.content, 'html.parser')
+                break
+        except Exception:
+            continue
+    _WIKI_CACHE[constituency_name] = soup
+    return soup
+
+
+def _match_wiki_party(party_text):
+    """Map a Wikipedia party string to a DB Party object."""
+    pt = party_text.strip()
+    if not pt or pt.lower() in ('independent', 'none', '-', '—', 'n/a', ''):
+        return None
+    p = Party.objects.filter(name__iexact=pt).first()
+    if p and p.name:
+        return p
+    for party in Party.objects.exclude(name='Independent').exclude(name=''):
+        if party.name.lower() in pt.lower() or pt.lower() in party.name.lower():
+            return party
+    return None
+
+
+_PRIORITY_PARTIES = ['Tory', 'Whig', 'Radical']
+
+
+def _party_from_wikipedia(candidate_name, constituency_name):
+    """
+    Find the candidate's party by locating their name in any table cell on the
+    constituency's Wikipedia page, then reading the next sibling <td>.
+    Checks common 1820-1832 parties first (Tory, Whig, Radical) before falling
+    back to the full DB party list.
+    """
+    soup = _fetch_wikipedia_page(constituency_name)
     if not soup:
         return None, None
-    text = soup.get_text(' ', strip=True)
-    for party in Party.objects.exclude(name='Independent').order_by('name'):
-        if re.search(r'\b' + re.escape(party.name) + r'\b', text, re.IGNORECASE):
-            return party, 'hop_page'
+    sig = _sig_words(candidate_name)
+    if not sig:
+        return None, None
+
+    for cell in soup.find_all(['td', 'th']):
+        cell_sig = _sig_words(cell.get_text(strip=True))
+        overlap = sig & cell_sig
+        if len(overlap) < min(2, len(sig)):
+            continue
+        next_td = cell.find_next_sibling('td')
+        if not next_td:
+            continue
+        next_text = next_td.get_text(strip=True)
+        for keyword in _PRIORITY_PARTIES:
+            if keyword.lower() in next_text.lower():
+                party = Party.objects.filter(name__icontains=keyword).exclude(name='').first()
+                if party:
+                    return party, 'wikipedia'
+        party = _match_wiki_party(next_text)
+        if party:
+            return party, 'wikipedia'
+
     return None, None
 
 
-def determine_party(existing_cr, person, hop_id='', name=''):
+def determine_party(existing_cr, person, name='', constituency=None):
     """
     Best-effort party determination. Returns (Party, source_str).
     Priority:
       1. Party already on the matching DB CandidateResult
       2. Any other CandidateResult for this person (via Person object)
-      3. Name-match against existing CandidateResults (when no Person linked)
-      4. Candidate's HOP member page
+      3. Name-match within this constituency's existing CandidateResults
+      4. Constituency Wikipedia page
       5. Independent fallback
     """
     if existing_cr and existing_cr.party:
@@ -242,18 +344,20 @@ def determine_party(existing_cr, person, hop_id='', name=''):
         if cr:
             return cr.party, f'other_election_{cr.election.year}'
 
-    if not person and name:
-        party, src = _party_from_cr_name(name)
+    if name:
+        party, src = _party_from_constituency_crs(name, constituency)
         if party:
             return party, src
 
-    if hop_id:
-        party, src = _party_from_hop_page(hop_id)
+    if name and constituency:
+        party, src = _party_from_wikipedia(name, constituency.name)
         if party:
             return party, src
 
     return get_independent(), 'default_independent'
 
+
+_ROMAN_RE = re.compile(r'\b(Ii{1,2}|Iv|Vi{0,3}|Ix|Xi{0,2})\b')
 
 _HONORIFICS_RE = re.compile(
     r'^(sir|lord|lady|hon\.?|dr\.?|rev\.?|mr\.?|mrs\.?)\s+', re.IGNORECASE
@@ -303,7 +407,7 @@ def find_matching_cr(constituency, election, name, elected_flag, year=None):
     Returns (obj_or_None, quality_str).
     """
     qs = list(CandidateResult.objects.filter(
-        constituency=constituency, election=election
+        constituency__name=constituency.name, election=election
     ).select_related('party', 'person'))
 
     nl = name.lower()
@@ -382,6 +486,72 @@ def build_preview(rows, constituency_name):
     return result
 
 
+def _apply_petition_outcomes(candidates, petition_rows):
+    """
+    Post-process GE candidates using petition rows.
+    Marks the petitioned-out candidate as disqualified/not-elected with a note,
+    and promotes the runner-up to elected.
+    Petition rows are NOT added as candidates themselves.
+    """
+    if not petition_rows:
+        return
+
+    raw_notes = [r.get('Notes', '').strip() for r in petition_rows if r.get('Notes', '').strip()]
+    petition_note = '; '.join(raw_notes) if raw_notes else 'Removed on petition.'
+
+    # Identify the disqualified candidate by matching the petition row that marks
+    # a candidate as removed (*) against each GE candidate's full raw HOP name
+    # (which includes titles/peerage names, e.g. "JAMES DUFF, EARL FIFE [I]").
+    # Prioritise rows with * in votes; fall back to all petition rows if none have *.
+    def _alpha_words(s):
+        return {re.sub(r'[^a-z]', '', w) for w in s.lower().split()
+                if len(re.sub(r'[^a-z]', '', w)) > 1}
+
+    disq_petition = [r for r in petition_rows if '*' in r.get('Votes', '')]
+    match_rows = disq_petition if disq_petition else petition_rows
+
+    disq_cand = None
+    for pr in match_rows:
+        pr_words = _alpha_words(pr.get('Candidate', ''))
+        for cand in candidates:
+            if pr_words & _alpha_words(cand['row']['Candidate']):
+                disq_cand = cand
+                break
+        if disq_cand:
+            break
+
+    if not disq_cand:
+        elected = [c for c in candidates if c['elected']]
+        if len(elected) == 1:
+            disq_cand = elected[0]
+
+    if not disq_cand:
+        return
+
+    disq_cand['disqualified'] = True
+    disq_cand['elected'] = False
+    disq_cand['notes'] = petition_note
+    existing = disq_cand.get('existing_cr')
+    if existing:
+        if not existing.disqualified and 'disqualified' not in disq_cand['changes']:
+            disq_cand['changes'].append('disqualified')
+        if existing.elected and 'elected' not in disq_cand['changes']:
+            disq_cand['changes'].append('elected')
+        if 'notes' not in disq_cand['changes']:
+            disq_cand['changes'].append('notes')
+
+    # Promote the runner-up (highest votes among remaining candidates) to elected
+    others = [c for c in candidates if c is not disq_cand]
+    if not others:
+        return
+    runner_up = max(others, key=lambda c: c['votes'] or 0)
+    runner_up['elected'] = True
+    existing_ru = runner_up.get('existing_cr')
+    if existing_ru:
+        if not existing_ru.elected and 'elected' not in runner_up['changes']:
+            runner_up['changes'].append('elected')
+
+
 def _process_group(const, date_str, etype_grp, rows):
     year, month, day = parse_hop_date(date_str)
 
@@ -421,19 +591,27 @@ def _process_group(const, date_str, etype_grp, rows):
         data['election'] = existing_be
         data['election_action'] = 'found' if existing_be else 'create'
         data['be_notes'] = '; '.join(r['Notes'] for r in rows if r.get('Notes'))
+        data['old_mp_name'] = _resolve_old_mp(const, rows)
 
     election = data['election']
 
-    # Sum all parsed votes for percent calculation
-    for row in rows:
+    # Separate petition rows — they inform outcomes but are not candidates themselves
+    petition_rows = [r for r in rows if r.get('Election Type') == 'Petition']
+    candidate_rows = [r for r in rows if r.get('Election Type') != 'Petition']
+
+    # Sum votes from candidate rows only (petition rows may repeat the same figures)
+    for row in candidate_rows:
         v, _ = parse_votes(row.get('Votes', ''))
         if v:
             data['total_votes'] += v
 
-    for row in rows:
+    for row in candidate_rows:
         data['candidates'].append(
             _process_candidate(const, election, year, row, data['total_votes'])
         )
+
+    if etype_grp == 'GE' and petition_rows:
+        _apply_petition_outcomes(data['candidates'], petition_rows)
 
     # ConstituencyResult (GEs with votes only)
     if etype_grp == 'GE' and data['total_votes'] and election:
@@ -441,7 +619,7 @@ def _process_group(const, date_str, etype_grp, rows):
             constituency=const, election=election
         ).first()
 
-        # Build petition note
+        # Build petition note from all rows (petition row names are useful here)
         disq_names = [r['Candidate'] for r in rows if '*' in r.get('Votes', '')]
         petition_detail = '; '.join(r['Notes'] for r in rows
                                     if r['Election Type'] == 'Petition' and r.get('Notes'))
@@ -470,7 +648,7 @@ def _process_candidate(const, election, year, row, total_votes):
 
     elected_flag = candidate_is_elected(name)
     votes, disqualified = parse_votes(votes_str)
-    unopposed = not votes_str.strip() and et == 'General'
+    unopposed = not votes_str.strip() and et in ('General', 'By-election')
 
     percent = round(votes / total_votes * 100, 1) if (votes and total_votes) else None
 
@@ -483,13 +661,13 @@ def _process_candidate(const, election, year, row, total_votes):
             person = matched
             person_action = 'link_by_name'
 
-    display_name = person.name if person_action in ('link', 'link_by_name') else name.title()
+    display_name = person.name if person_action in ('link', 'link_by_name') else _ROMAN_RE.sub(lambda m: m.group().upper(), name.title())
 
     existing_cr, match_quality = (None, None)
     if election and const:
         existing_cr, match_quality = find_matching_cr(const, election, name, elected_flag, year=year)
 
-    party, party_source = determine_party(existing_cr, person, hop_id, name=name)
+    party, party_source = determine_party(existing_cr, person, name=name, constituency=const)
 
     changes = []
     if existing_cr:
@@ -525,6 +703,7 @@ def _process_candidate(const, election, year, row, total_votes):
         'votes': votes,
         'percent': percent,
         'changes': changes,
+        'notes': None,
     }
 
 
@@ -561,8 +740,14 @@ def commit_preview(preview):
                 date=be_dt,
                 constituency=const,
                 notes=elec_data.get('be_notes', ''),
+                oldMP=elec_data.get('old_mp_name') or None,
             )
             stats['elections_created'] += 1
+        elif election and etype == 'BE':
+            old_mp = elec_data.get('old_mp_name')
+            if old_mp and not election.oldMP:
+                election.oldMP = old_mp
+                election.save()
 
         if not election:
             continue
@@ -596,6 +781,7 @@ def commit_preview(preview):
                     unopposed=cand['unopposed'],
                     elected=cand['elected'],
                     disqualified=cand['disqualified'],
+                    notes=cand.get('notes'),
                 )
                 stats['crs_created'] += 1
 
@@ -612,6 +798,8 @@ def commit_preview(preview):
                         cr.elected = cand['elected']
                     elif field == 'disqualified':
                         cr.disqualified = cand['disqualified']
+                    elif field == 'notes':
+                        cr.notes = cand['notes']
                     elif field == 'person':
                         cr.person = person
                     elif field == 'unopposed':

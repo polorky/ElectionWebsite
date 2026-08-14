@@ -130,6 +130,9 @@
       {% endif %}
     </h2>
 
+    {% if elec.old_mp_name %}
+      <p style="font-size:12px;color:#555;margin:4px 0 4px;">Outgoing MP: <strong>{{ elec.old_mp_name }}</strong></p>
+    {% endif %}
     {% if elec.be_notes %}
       <p style="font-size:12px;color:#555;margin:4px 0 8px;">Notes: {{ elec.be_notes }}</p>
     {% endif %}
@@ -166,6 +169,9 @@
             {{ c.display_name }}
             {% if c.action == 'update' and 'candidate' in c.changes %}
               <br><span style="font-size:11px;color:#999;">was: {{ c.existing_cr.candidate }}</span>
+            {% endif %}
+            {% if c.notes %}
+              <br><span style="font-size:11px;color:#7b1fa2;">📜 {{ c.notes }}</span>
             {% endif %}
             {% if c.hop_id %}
               <br><a href="https://www.historyofparliamentonline.org/volume/{{ c.hop_id }}"

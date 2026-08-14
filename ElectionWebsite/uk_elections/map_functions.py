@@ -1,5 +1,6 @@
 from .models import Party, Constituency, Election, CandidateResult
 from .constants import BOKEH_DISPLAY_TEXT, GEOJSON_NAME_MAP, DISENFRANCHISED_CONSTITUENCIES
+from .data_cache import get_svg_data, get_hex_data
 
 import numpy as np
 from collections import defaultdict
@@ -9,12 +10,13 @@ from bokeh.models import TapTool, CustomJS, ColumnDataSource, Toggle
 from bokeh.embed import components
 from bokeh.plotting import figure
 from bokeh.layouts import column
-import pickle, os, geojson, json
+import os, geojson, json
 from shapely.geometry import box, Polygon, MultiPolygon
 from shapely.validation import make_valid
 
 # Construct path to app's static directory
 app_static_dir = os.path.join(os.path.dirname(__file__), 'static')
+
 
 class ElectionMap():
 
@@ -134,10 +136,7 @@ class ElectionMap():
         
         elif self.map_type == 'map':
 
-            file_path = os.path.join(app_static_dir, 'uk_svg_data_ws')
-            with open(file_path, "rb") as f:
-                svgs = pickle.load(f)
-
+            svgs = get_svg_data()
             svg_dict = svgs[self.electionObj.map]
             names = [GEOJSON_NAME_MAP.get(n, n) for n in svg_dict['names']]
             
@@ -146,9 +145,7 @@ class ElectionMap():
         elif self.map_type == 'hex':
 
             hex_col = self.electionObj.hex
-            file_path = os.path.join(app_static_dir, 'uk_hex_data_ws')
-            with open(file_path, "rb") as f:
-                hex_df = pickle.load(f)
+            hex_df = get_hex_data()
             hex_df = hex_df[hex_df[hex_col] != ""]
 
             names = list(hex_df['Constituency'])
