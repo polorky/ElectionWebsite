@@ -10,7 +10,7 @@
     <h1>MPs and Selected Candidates</h1>
 
     {% for p in person %}
-        <p>{{ p.name }}</p>
+        <p><a href="/uk/people/{{ p.id }}">{{ p.name }}</a></p>
     {% endfor %}
     
 {% elif pageview == 'notfound' %}

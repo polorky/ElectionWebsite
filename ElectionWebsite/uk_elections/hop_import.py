@@ -437,6 +437,7 @@ def find_matching_cr(constituency, election, name, elected_flag, year=None):
         if hop_words:
             scored = sorted(
                 [(len(hop_words & _sig_words(cr.candidate)), cr) for cr in qs],
+                key=lambda t: t[0],
                 reverse=True,
             )
             if scored and scored[0][0] > 0:

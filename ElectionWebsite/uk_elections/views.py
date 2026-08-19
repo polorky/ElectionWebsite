@@ -14,6 +14,8 @@ import io
 import json
 import pickle
 from datetime import datetime
+from urllib.parse import quote
+from django.conf import settings
 from bokeh.plotting import figure
 from bokeh.embed import components
 from bokeh.models import CustomJS, TapTool, ColumnDataSource, FixedTicker, LabelSet, Span, LinearAxis
@@ -40,36 +42,19 @@ def electionView(request, election, map_type='None'):
     return render(request, "uk_elections/elections.html", context)
 
 # Module-level caches — populated on first use, shared across requests within a worker process.
-_geojson_lookup = None   # {constituency_name: geometry_json_string}
 _mini_svg_cache = {}     # {constituency_name: svg_string}
 
-
-def _build_geojson_lookup():
-    global _geojson_lookup
-    _geojson_lookup = {}
-    elections = Election.objects.filter(type='GE', gj__isnull=False).exclude(gj='').order_by('-date')
-    seen = set()
-    for elec in elections:
-        file_path = os.path.join(app_static_dir, elec.gj)
-        try:
-            with open(file_path) as f:
-                gj = json.load(f)
-        except Exception:
-            continue
-        for feature in gj.get('features', []):
-            props = feature.get('properties', {})
-            raw_name = props.get('name') or props.get('Name', '')
-            mapped_name = GEOJSON_NAME_MAP.get(raw_name, raw_name)
-            if mapped_name not in seen:
-                _geojson_lookup[mapped_name] = json.dumps(feature['geometry'])
-                seen.add(mapped_name)
+_CONST_MAPS_DIR = os.path.join(app_static_dir, 'uk_elections', 'constituency_maps')
 
 
-def _get_constituency_geojson(name):
-    global _geojson_lookup
-    if _geojson_lookup is None:
-        _build_geojson_lookup()
-    return _geojson_lookup.get(name)
+def _get_constituency_map_url(name):
+    """Return an absolute-path URL for the pre-generated PNG, or None if absent."""
+    if os.path.exists(os.path.join(_CONST_MAPS_DIR, f'{name}.png')):
+        static_url = settings.STATIC_URL
+        if not static_url.startswith(('http://', 'https://', '/')):
+            static_url = '/' + static_url
+        return f'{static_url}uk_elections/constituency_maps/{quote(name)}.png'
+    return None
 
 
 def _get_constituency_mini_svg(name):
@@ -226,8 +211,8 @@ def constituencyView(request, const):
                'results': sep_results,
                'vs_div': vs_div,
                'vs_script': vs_script,
+               'const_map_url': _get_constituency_map_url(const),
                'mini_svg': _get_constituency_mini_svg(const),
-               'mini_geojson': _get_constituency_geojson(const),
                'active_nav': 'constituencies',}
     
     return render(request, "uk_elections/constituencies.html", context=context)
@@ -451,7 +436,7 @@ def peopleView(request, person):
 
         except:
             pageview = 'notfound'
-
+        
     return render(request, 'uk_elections/people.html', {'pageview':pageview, 'person':person, 'results':sep_results, 'active_nav': 'people'})
 
 def sourcesView(request):
@@ -810,13 +795,46 @@ def hop_import_preview(request, slug):
         constituency_name = slug_to_name(slug)
         hop_url = f'https://www.historyofparliamentonline.org/volume/1820-1832/constituencies/{slug}'
 
+    session_key = f'hop_html_{slug}'
+
+    def _soup_from_html(html):
+        from bs4 import BeautifulSoup
+        return BeautifulSoup(html, 'html.parser')
+
+    def _build_from_soup(soup):
+        rows = parse_elections_table(soup, constituency_name)
+        if not rows:
+            return None, 'No election table found in this HTML.'
+        return build_preview(rows, constituency_name), None
+
     if request.method == 'POST':
-        soup = fetch_page(hop_url)
-        if not soup:
+        raw_html = request.POST.get('raw_html', '').strip()
+
+        if raw_html:
+            # User pasted page source — build preview from it
+            request.session[session_key] = raw_html
+            preview, err = _build_from_soup(_soup_from_html(raw_html))
+            if err:
+                return render(request, 'uk_elections/hop_import_preview.html', {
+                    'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
+                    'error': err,
+                })
             return render(request, 'uk_elections/hop_import_preview.html', {
                 'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-                'error': 'Could not fetch HOP page to commit.',
+                'preview': preview, 'committed': False,
             })
+
+        # Commit step — re-parse from session HTML or re-fetch
+        stored_html = request.session.pop(session_key, None)
+        if stored_html:
+            soup = _soup_from_html(stored_html)
+        else:
+            soup, fetch_error = fetch_page(hop_url)
+            if not soup:
+                return render(request, 'uk_elections/hop_import_preview.html', {
+                    'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
+                    'error': f'Could not fetch HOP page to commit. ({fetch_error})',
+                })
         rows = parse_elections_table(soup, constituency_name)
         preview = build_preview(rows, constituency_name)
         stats = commit_preview(preview)
@@ -825,18 +843,20 @@ def hop_import_preview(request, slug):
             'committed': True, 'stats': stats,
         })
 
-    # GET — scrape and build preview
-    soup = fetch_page(hop_url)
+    # GET — try to fetch automatically
+    soup, fetch_error = fetch_page(hop_url)
     if not soup:
         return render(request, 'uk_elections/hop_import_preview.html', {
             'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-            'error': 'Could not fetch HOP page (Wayback Machine may be unavailable).',
+            'error': f'Could not fetch HOP page automatically. ({fetch_error})',
+            'show_paste_form': True,
         })
     rows = parse_elections_table(soup, constituency_name)
     if not rows:
         return render(request, 'uk_elections/hop_import_preview.html', {
             'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
             'error': 'No election table found on this HOP page.',
+            'show_paste_form': True,
         })
     preview = build_preview(rows, constituency_name)
     return render(request, 'uk_elections/hop_import_preview.html', {

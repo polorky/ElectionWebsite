@@ -86,6 +86,22 @@
 
 {% if error %}
   <div class="hop-error">{{ error }}</div>
+  {% if show_paste_form %}
+  <div style="margin-top:16px;">
+    <p style="font-size:13px;margin-bottom:8px;">
+      <strong>Manual fallback:</strong>
+      Open the <a href="{{ hop_url }}" target="_blank" rel="noopener">HOP page ↗</a> in your browser,
+      right-click → <em>View Page Source</em>, select all, copy, and paste below.
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      <textarea name="raw_html" rows="6" placeholder="Paste page source here…"
+                style="width:100%;font-family:monospace;font-size:11px;border:1px solid #ccc;
+                       border-radius:4px;padding:8px;box-sizing:border-box;resize:vertical;"></textarea>
+      <button type="submit" class="btn-commit" style="margin-top:8px;">Parse pasted HTML</button>
+    </form>
+  </div>
+  {% endif %}
 
 {% elif committed %}
   <div class="hop-success">

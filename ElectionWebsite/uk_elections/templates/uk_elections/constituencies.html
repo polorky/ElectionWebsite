@@ -104,26 +104,9 @@
 
       </div>
 
-      {% if mini_geojson %}
+      {% if const_map_url %}
       <div style="flex-shrink:0;padding:12px 12px 12px 0;">
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-        <div id="const-mini-map" style="width:200px;height:230px;border:1px solid #ccc;border-radius:4px;overflow:hidden;"></div>
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script>
-        (function() {
-          var geom = {{ mini_geojson|safe }};
-          var map = L.map('const-mini-map', {
-            zoomControl: false, attributionControl: false,
-            dragging: false, touchZoom: false, doubleClickZoom: false,
-            scrollWheelZoom: false, boxZoom: false, keyboard: false
-          });
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
-          var layer = L.geoJSON(geom, {
-            style: {color: '#3a5f8a', weight: 2, fillColor: '#5b82b8', fillOpacity: 0.35}
-          }).addTo(map);
-          map.fitBounds(layer.getBounds().pad(0.15));
-        })();
-        </script>
+        <img src="{{ const_map_url }}" style="width:200px;height:auto;border:1px solid #ccc;border-radius:4px;display:block;" alt="{{ consts.0.name }} map">
       </div>
       {% elif mini_svg %}
       <div style="flex-shrink:0;padding:12px 12px 12px 0;">
