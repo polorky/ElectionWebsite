@@ -130,7 +130,6 @@
     {% else %}
       <h3>By-Election {{ result.election.date|date:'Y' }}</h3>
       <p><b>Date Held:</b> {{ result.election.date|date:'jS F Y' }}</p>
-      <p><b>Outgoing MP:</b> {{ result.election.oldMP }}</p>
       <p style="width:50%;"><b>Notes:</b> {{ result.election.notes }}</p>
     {% endif %}
     {% if result.results.0.unopposed %}
@@ -162,7 +161,11 @@
             {% endif %}
           </tr>            
         {% endfor %}
-        <tr><th colspan="3">Turnout</th><th>{{ result.turnout.votes }}</th><th>{{ result.turnout.percent }}</th><th></th></tr>
+        {% if result.election.type == 'GE' %}
+          <tr><th colspan="3">Turnout</th><th>{{ result.turnout.turnout_votes }}</th><th>{{ result.turnout.turnout_percent }}</th><th></th></tr>
+        {% else %}
+          <tr><th colspan="3">Turnout</th><th>{{ result.election.turnout_votes }}</th><th>{{ result.election.turnout_percent }}</th><th></th></tr>
+        {% endif %}
       </table>
       {% for note in result.notes %}
         <p>{{ note }}</p>

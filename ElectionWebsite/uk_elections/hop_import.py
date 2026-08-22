@@ -490,8 +490,11 @@ def build_preview(rows, constituency_name):
 def _apply_petition_outcomes(candidates, petition_rows):
     """
     Post-process GE candidates using petition rows.
-    Marks the petitioned-out candidate as disqualified/not-elected with a note,
-    and promotes the runner-up to elected.
+
+    The petition row's Candidate field names the person AWARDED the seat on
+    appeal — they should be marked elected.  The original winner who is not
+    that person should be marked disqualified/not-elected.
+
     Petition rows are NOT added as candidates themselves.
     """
     if not petition_rows:
@@ -500,31 +503,31 @@ def _apply_petition_outcomes(candidates, petition_rows):
     raw_notes = [r.get('Notes', '').strip() for r in petition_rows if r.get('Notes', '').strip()]
     petition_note = '; '.join(raw_notes) if raw_notes else 'Removed on petition.'
 
-    # Identify the disqualified candidate by matching the petition row that marks
-    # a candidate as removed (*) against each GE candidate's full raw HOP name
-    # (which includes titles/peerage names, e.g. "JAMES DUFF, EARL FIFE [I]").
-    # Prioritise rows with * in votes; fall back to all petition rows if none have *.
     def _alpha_words(s):
         return {re.sub(r'[^a-z]', '', w) for w in s.lower().split()
                 if len(re.sub(r'[^a-z]', '', w)) > 1}
 
-    disq_petition = [r for r in petition_rows if '*' in r.get('Votes', '')]
-    match_rows = disq_petition if disq_petition else petition_rows
-
-    disq_cand = None
-    for pr in match_rows:
+    # Find the petition winner (named in the petition row) among GE candidates.
+    petition_winner = None
+    for pr in petition_rows:
         pr_words = _alpha_words(pr.get('Candidate', ''))
         for cand in candidates:
             if pr_words & _alpha_words(cand['row']['Candidate']):
-                disq_cand = cand
+                petition_winner = cand
                 break
-        if disq_cand:
+        if petition_winner:
             break
 
-    if not disq_cand:
+    # The candidate to disqualify is the original elected winner who is not the petition winner.
+    if petition_winner:
+        disq_cand = next(
+            (c for c in candidates if c['elected'] and c is not petition_winner),
+            None,
+        )
+    else:
+        # Petition winner not matched by name — fall back to disqualifying the sole original winner.
         elected = [c for c in candidates if c['elected']]
-        if len(elected) == 1:
-            disq_cand = elected[0]
+        disq_cand = elected[0] if len(elected) == 1 else None
 
     if not disq_cand:
         return
@@ -541,16 +544,21 @@ def _apply_petition_outcomes(candidates, petition_rows):
         if 'notes' not in disq_cand['changes']:
             disq_cand['changes'].append('notes')
 
-    # Promote the runner-up (highest votes among remaining candidates) to elected
-    others = [c for c in candidates if c is not disq_cand]
-    if not others:
-        return
-    runner_up = max(others, key=lambda c: c['votes'] or 0)
-    runner_up['elected'] = True
-    existing_ru = runner_up.get('existing_cr')
-    if existing_ru:
-        if not existing_ru.elected and 'elected' not in runner_up['changes']:
-            runner_up['changes'].append('elected')
+    # Mark the petition winner as elected.
+    if petition_winner:
+        petition_winner['elected'] = True
+        existing_pw = petition_winner.get('existing_cr')
+        if existing_pw and not existing_pw.elected and 'elected' not in petition_winner['changes']:
+            petition_winner['changes'].append('elected')
+    else:
+        # No named petition winner — promote the runner-up by votes.
+        others = [c for c in candidates if c is not disq_cand]
+        if others:
+            runner_up = max(others, key=lambda c: c['votes'] or 0)
+            runner_up['elected'] = True
+            existing_ru = runner_up.get('existing_cr')
+            if existing_ru and not existing_ru.elected and 'elected' not in runner_up['changes']:
+                runner_up['changes'].append('elected')
 
 
 def _process_group(const, date_str, etype_grp, rows):

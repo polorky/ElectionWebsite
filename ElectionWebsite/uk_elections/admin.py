@@ -87,7 +87,7 @@ class ConstituencyAdmin(admin.ModelAdmin):
     get_successors.short_description = 'Successors'
 
 class ElectionAdmin(admin.ModelAdmin):
-    list_display = ('type','year','date')
+    list_display = ('type','year','date','constituency')
 
 class CoalitionAdmin(admin.ModelAdmin):
     list_display = ('name',)
