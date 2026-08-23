@@ -1,9 +1,7 @@
 """
 HOP 1820-1832 import: scrape constituency pages and preview/commit DB changes.
 """
-import os
 import re
-import sys
 from datetime import date as date_cls, datetime as dt
 
 import requests
@@ -12,15 +10,6 @@ from bs4 import BeautifulSoup as _BS
 from django.db import transaction
 from django.utils.timezone import make_aware
 
-# ── Scraper path ──────────────────────────────────────────────────────────────
-_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-
-from scrape_hop_constituencies import (
-    parse_elections_table,
-    hop_id_from_url,
-)
 
 from .models import (
     Constituency, Election, Party, Person,
