@@ -781,7 +781,11 @@ def hop_import_preview(request, slug):
         get_hop_constituency_list, slug_to_name,
         build_preview, commit_preview,
     )
-    from scrape_hop_constituencies import fetch_page, parse_elections_table
+    try:
+        from scrape_hop_constituencies import fetch_page, parse_elections_table
+    except ImportError:
+        from django.http import HttpResponse
+        return HttpResponse('scrape_hop_constituencies is not available in this environment.', status=501)
 
     # Resolve the display name from the cached CDX list
     try:

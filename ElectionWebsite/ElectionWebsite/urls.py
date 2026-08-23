@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('accounts/', include('django.contrib.auth.urls')),
     path('uk/', include('uk_elections.urls')),
     path('', views.home, name='home')
 ]
