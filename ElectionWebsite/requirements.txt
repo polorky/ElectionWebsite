@@ -9,5 +9,6 @@ gunicorn
 whitenoise
 requests
 beautifulsoup4
+openpyxl
 svgpath2mpl==1.0.0
 shapely==2.1.2

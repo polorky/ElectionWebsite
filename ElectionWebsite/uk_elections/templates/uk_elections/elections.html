@@ -9,6 +9,11 @@
 
   <h2>UK General Elections</h2>
 
+  <p>Below is the list of available elections. Elections from 1885 onwards have geographical maps available meaning 
+    they can be transposed onto Open Street Map showing exactly where the boundaries run. Prior to 1885 only 
+    representative maps are available. The hex maps show each seat as a same-sized hexagon (note that some historic 
+    constituencies had multiple seats).
+  </p>
   <ul>
     {% for election in elections %}
       <li>
@@ -31,114 +36,71 @@
 
 {% else %}
 
-  <h2>{{ election.year }} General Election</h2>
-
-  <h3>Full Results</h3>
-
-  {% if pageview == 'map' %}
-    {% if last and next %}
-      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
-    {% elif last %}
-      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a></p>
-    {% else %}
-      <p><a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
-    {% endif %}
-    {% if election.hex %}
-      <p><a href="/uk/elections/{{ election.year }}/hex">Switch to {{ election.year }} Election Hex</a></p>
-    {% endif %}
-    {% if selected_party %}
-      <p><a href="/uk/elections/{{ election.year }}/map">&#8592; Back to Winning Party Map</a></p>
-      <p>
-        <b>Party vote share:</b>
-        <select onchange="window.location='/uk/elections/{{ election.year }}/map?party='+this.value">
-          {% for party in main_parties %}
-            <option value="{{ party.pk }}" {% if party == selected_party %}selected{% endif %}>{{ party.name }}</option>
-          {% endfor %}
-        </select>
-      </p>
-    {% elif main_parties %}
-      <p>
-        <b>Party vote share:</b>
-        <select onchange="window.location='/uk/elections/{{ election.year }}/map?party='+this.value">
-          <option value="" disabled selected>Select a party…</option>
-          {% for party in main_parties %}
-            <option value="{{ party.pk }}">{{ party.name }}</option>
-          {% endfor %}
-        </select>
-      </p>
-    {% endif %}
-  {% elif pageview == 'hex' %}
-    {% if last and next %}
-      <p><a href="/uk/elections/{{ last.year }}/hex">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/hex">Next Election</a></p>
-    {% elif last %}
-      <p><a href="/uk/elections/{{ last.year }}/hex">Previous Election</a></p>
-    {% else %}
-      <p><a href="/uk/elections/{{ next.year }}/hex">Next Election</a></p>
-    {% endif %}
-    {% if election.gj %}
-       <p><a href="/uk/elections/{{ election.year }}/gj">Switch to {{ election.year }} Election Map</a></p>
-    {% endif %}
-    {% if selected_party %}
-      <p><a href="/uk/elections/{{ election.year }}/hex">&#8592; Back to Winning Party Map</a></p>
-      <p>
-        <b>Party vote share:</b>
-        <select onchange="window.location='/uk/elections/{{ election.year }}/hex?party='+this.value">
-          {% for party in main_parties %}
-            <option value="{{ party.pk }}" {% if party == selected_party %}selected{% endif %}>{{ party.name }}</option>
-          {% endfor %}
-        </select>
-      </p>
-    {% elif main_parties %}
-      <p>
-        <b>Party vote share:</b>
-        <select onchange="window.location='/uk/elections/{{ election.year }}/hex?party='+this.value">
-          <option value="" disabled selected>Select a party…</option>
-          {% for party in main_parties %}
-            <option value="{{ party.pk }}">{{ party.name }}</option>
-          {% endfor %}
-        </select>
-      </p>
-    {% endif %}
-  {% elif pageview == 'gj' %}
-    {% if last and next %}
-      <p><a href="/uk/elections/{{ last.year }}/gj">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/gj">Next Election</a></p>
-    {% elif last %}
-      <p><a href="/uk/elections/{{ last.year }}/gj">Previous Election</a></p>
-    {% else %}
-      <p><a href="/uk/elections/{{ next.year }}/gj">Next Election</a></p>
-    {% endif %}
-    {% if election.hex %}
-      <p><a href="/uk/elections/{{ election.year }}/hex">Switch to {{ election.year }} Election Hex</a></p>
-    {% endif %}
-    {% if selected_party %}
-      <p><a href="/uk/elections/{{ election.year }}/gj">&#8592; Back to Winning Party Map</a></p>
-      <p>
-        <b>Party vote share:</b>
-        <select onchange="window.location='/uk/elections/{{ election.year }}/gj?party='+this.value">
-          {% for party in main_parties %}
-            <option value="{{ party.pk }}" {% if party == selected_party %}selected{% endif %}>{{ party.name }}</option>
-          {% endfor %}
-        </select>
-      </p>
-    {% elif main_parties %}
-      <p>
-        <b>Party vote share:</b>
-        <select onchange="window.location='/uk/elections/{{ election.year }}/gj?party='+this.value">
-          <option value="" disabled selected>Select a party…</option>
-          {% for party in main_parties %}
-            <option value="{{ party.pk }}">{{ party.name }}</option>
-          {% endfor %}
-        </select>
-      </p>
-    {% endif %}
+  <h1>{{ election.year }} General Election</h1>
+  
+  {% if last and next %}
+    <p><a href="/uk/elections/{{ last.year }}/{{ pageview }}">← {{ last.year }} Election</a> - <a href="/uk/elections/{{ next.year }}/{{ pageview }}">{{ next.year }} Election →</a></p>
+  {% elif last %}
+    <p><a href="/uk/elections/{{ last.year }}/{{ pageview }}">← {{ last.year }} Election</a></p>
   {% else %}
-    {% if last and next %}
-      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a> - <a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
-    {% elif last %}
-      <p><a href="/uk/elections/{{ last.year }}/map">Previous Election</a></p>
-    {% else %}
-      <p><a href="/uk/elections/{{ next.year }}/map">Next Election</a></p>
+    <p><a href="/uk/elections/{{ next.year }}/{{ pageview }}">{{ next.year }} Election →</a></p>
+  {% endif %}
+
+  <hr class="divider">
+
+  <p><b>Prime Minister:</b> {{ election.prime_minister }} ({{ election.largest_party }})</p>
+  <p><b>Leader of the Opposition:</b> {{ election.opp_leader }} ({{ election.second_party }})</p>
+  
+  <hr class="divider">
+
+  {% if election.description %}
+    <p>{{ election.description }}</p>
+    <hr class="divider">
+  {% endif %}
+
+  <table id="table">
+    <tr><th colspan="2">Party</th><th>Seats Won</th></tr>
+    {% for row in overall_results %}
+      <tr><td style="background-color:{{ row.2 }};">  </td><td>{{ row.0 }}</td><td>{{ row.1 }}</td></tr>
+    {% endfor %}
+  </table>
+
+  {% if pageview == 'map' or pageview == 'gj' %}
+
+    {% if election.hex %}
+      <p><a class="btn" href="/uk/elections/{{ election.year }}/hex">Switch to {{ election.year }} Election Hex</a></p>
     {% endif %}
+
+  {% elif pageview == 'hex' %}
+
+    {% if election.gj %}
+       <p><a class="btn" href="/uk/elections/{{ election.year }}/gj">Switch to {{ election.year }} Election Map</a></p>
+    {% elif election.map %}
+       <p><a class="btn" href="/uk/elections/{{ election.year }}/map">Switch to {{ election.year }} Election Map</a></p>
+    {% endif %}
+
+  {% endif %}
+
+  {% if selected_party %}
+    <p><a class="btn" href="/uk/elections/{{ election.year }}/{{ pageview }}">&#8592; Back to Winning Party Map</a></p>
+    <p>
+      <b>Party vote share:</b>
+      <select onchange="window.location='/uk/elections/{{ election.year }}/{{ pageview }}?party='+this.value">
+        {% for party in main_parties %}
+          <option value="{{ party.pk }}" {% if party == selected_party %}selected{% endif %}>{{ party.name }}</option>
+        {% endfor %}
+      </select>
+    </p>
+  {% elif main_parties %}
+    <p>
+      <b>Party vote share:</b>
+      <select onchange="window.location='/uk/elections/{{ election.year }}/{{ pageview }}?party='+this.value">
+        <option value="" disabled selected>Select a party…</option>
+        {% for party in main_parties %}
+          <option value="{{ party.pk }}">{{ party.name }}</option>
+        {% endfor %}
+      </select>
+    </p>
   {% endif %}
 
   {% if pageview == 'map' or pageview == 'hex' or pageview == 'gj' %}
@@ -205,13 +167,6 @@
     });
     </script>
   {% endif %}
-
-  <table id="table">
-    <tr><th colspan="2">Party</th><th>Seats Won</th></tr>
-    {% for row in overall_results %}
-      <tr><td style="background-color:{{ row.2 }};">  </td><td>{{ row.0 }}</td><td>{{ row.1 }}</td></tr>
-    {% endfor %}
-  </table>
 
   {% if const_results %}
     <h3>Elected MPs</h3>

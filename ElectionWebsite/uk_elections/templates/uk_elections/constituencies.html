@@ -2,7 +2,6 @@
 
 {% block title %}Constituencies{% endblock title %}
 
-
 {% block content %}
 
 {% if pageview == 'home' %}
@@ -128,9 +127,7 @@
     {% if result.election.type == 'GE' %}
       <h3><a href="/uk/elections/{{ result.election }}/map">{{ result.election }}</a></h3>
     {% else %}
-      <h3>By-Election {{ result.election.date|date:'Y' }}</h3>
-      <p><b>Date Held:</b> {{ result.election.date|date:'jS F Y' }}</p>
-      <p style="width:50%;"><b>Notes:</b> {{ result.election.notes }}</p>
+      <h3>By-Election - {{ result.election.date|date:'jS F Y' }}</h3>
     {% endif %}
     {% if result.results.0.unopposed %}
       <table id="table">
@@ -167,10 +164,10 @@
           <tr><th colspan="3">Turnout</th><th>{{ result.election.turnout_votes }}</th><th>{{ result.election.turnout_percent }}</th><th></th></tr>
         {% endif %}
       </table>
-      {% for note in result.notes %}
-        <p>{{ note }}</p>
-      {% endfor %}
     {% endif %}
+    {% for note in result.notes %}
+      <p><b>Notes: </b>{{ note }}</p>
+    {% endfor %}
   {% endfor %}
 
 {% endif %}

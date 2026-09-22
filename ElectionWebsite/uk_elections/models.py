@@ -94,6 +94,7 @@ class Election(models.Model):
     turnout_percent = models.FloatField(blank=True,null=True)
     alternate = models.IntegerField(default=1)
     notes = models.TextField(blank=True,null=True)
+    description = models.TextField(blank=True,null=True)
 
     # For general elections only
     largest_party = models.TextField(blank=True,null=True)

@@ -24,7 +24,10 @@ _HOP_YEARS = ['1820', '1826', '1830', '1831']
 
 def _name_to_slug(name):
     """Convert a constituency display name to a HOP URL slug."""
-    return name.lower().replace(' ', '-').replace('(', '%28').replace(')', '%29')
+    import re
+    slug = name.lower()
+    slug = re.sub(r'\bcounty\s+', 'co-', slug)
+    return slug.replace(' ', '-').replace('(', '%28').replace(')', '%29')
 
 
 def get_hop_constituency_list():

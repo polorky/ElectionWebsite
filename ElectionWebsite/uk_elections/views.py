@@ -146,18 +146,21 @@ def constituencyView(request, const):
     
     for election in all_elections:
             crs = all_results.filter(election=election).order_by('-votes')
-            res_dict = {'election':election, 
-                        'results':[], 
-                        'notes':[election.notes,] if election.notes else []}
+            notes_seen = set()
+            def _add_note(lst, note):
+                if note and note not in notes_seen:
+                    notes_seen.add(note)
+                    lst.append(note)
+
+            res_dict = {'election':election, 'results':[], 'notes':[]}
+            _add_note(res_dict['notes'], election.notes)
             for cr in crs:
                 res_dict['results'].append(cr)
-                if cr.notes:
-                    res_dict['notes'].append(cr.notes)
+                _add_note(res_dict['notes'], cr.notes)
             const_res = ConstituencyResult.objects.filter(constituency__in=constObjs, election=election)
             if const_res:
                 res_dict['turnout'] = const_res[0]
-                if const_res[0].notes:
-                    res_dict['notes'].append(const_res[0].notes)
+                _add_note(res_dict['notes'], const_res[0].notes)
             sep_results.append(res_dict)
 
     # Vote share history chart (GE elections with known percentages)
@@ -403,6 +406,44 @@ def countyView(request, county):
         'tl_div':         tl_div,
         'active_nav':     'counties',
     })
+
+def partyView(request, party):
+
+    sep_results = []
+
+    if party == 'home':
+        pageview = 'home'
+        party = Party.objects.annotate(result_count=Count('candidateresult')).filter(result_count__gt=1).order_by('-result_count')
+    else:
+        try:
+            party = Party.objects.get(id=party)
+            pageview = 'party'
+            all_results = CandidateResult.objects.filter(party=party)
+
+            all_elections = list(set(x.election for x in all_results))
+            all_elections = sorted(all_elections, key=lambda x: x.date, reverse=True)
+            
+            for election in all_elections:
+                    crs = all_results.filter(election=election).order_by('-votes')
+                    res_dict = {'election':election, 
+                                'results':[], 
+                                'notes':[election.notes,] if election.notes else []}
+                    for cr in crs:
+                        res_dict['results'].append(cr)
+                        if cr.notes:
+                            res_dict['notes'].append(cr.notes)
+                    const_res = ConstituencyResult.objects.filter(constituency=crs[0].constituency, election=election)
+                    if const_res:
+                        res_dict['turnout'] = const_res[0]
+                        if const_res[0].notes:
+                            res_dict['notes'].append(const_res[0].notes)
+                    sep_results.append(res_dict)
+
+        except:
+            party = None
+            pageview = 'notfound'
+        
+    return render(request, 'uk_elections/party.html', {'pageview':pageview, 'party':party, 'results':sep_results, 'active_nav': 'parties'})
 
 def peopleView(request, person):
     sep_results = []
@@ -781,11 +822,7 @@ def hop_import_preview(request, slug):
         get_hop_constituency_list, slug_to_name,
         build_preview, commit_preview,
     )
-    try:
-        from scrape_hop_constituencies import fetch_page, parse_elections_table
-    except ImportError:
-        from django.http import HttpResponse
-        return HttpResponse('scrape_hop_constituencies is not available in this environment.', status=501)
+    from .scrape_hop_constituencies import fetch_page, parse_elections_table
 
     # Resolve the display name from the cached CDX list
     try:

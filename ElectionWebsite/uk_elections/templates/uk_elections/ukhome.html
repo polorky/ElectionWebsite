@@ -2,11 +2,7 @@
 
 {% block title %}UK Home{% endblock title %}
 
-{% block menubar %}
-  <li class="nav"><a class="nav" href="/">Home</a></li>
-  <li class="nav"><a class="nav active" href="/uk">UK Elections</a></li>
-  <!-- <li class="nav"><a class="nav" href="/us">US</a></li> -->
-{% endblock menubar %}
+{% block menubar %}{% endblock %}
 
 {% block submenubar %}
   <li class="nav"><a class="nav {% if active_nav == 'home' %}active{% endif %}" href="/uk">UK Home</a></li>
@@ -14,6 +10,7 @@
   <li class="nav"><a class="nav {% if active_nav == 'constituencies' %}active{% endif %}" href="/uk/constituencies/home">Constituencies</a></li>
   <li class="nav"><a class="nav {% if active_nav == 'counties' %}active{% endif %}" href="/uk/counties/home">Counties</a></li>
   <li class="nav"><a class="nav {% if active_nav == 'people' %}active{% endif %}" href="/uk/people/home">People</a></li>
+  <li class="nav"><a class="nav {% if active_nav == 'parties' %}active{% endif %}" href="/uk/parties/home">Parties</a></li>
   <li class="nav"><a class="nav {% if active_nav == 'boundaries' %}active{% endif %}" href="/uk/boundaries">Boundary Changes</a></li>
   <li class="nav"><a class="nav {% if active_nav == 'sources' %}active{% endif %}" href="/uk/sources">Sources</a></li>
 {% endblock submenubar %}
@@ -22,6 +19,28 @@
 
   <h1>UK Election History</h1>
 
-  <p>Welcome to my site which provides maps, data and stats about elections of the United Kingdom.</p>
+  <p>Welcome to my site! As an election nerd and lover of stats and maps plus an amateur coder, I set out to merge all these interests in this site.</p>
+
+  <p>The elections currently available are listed on the <a href="/uk/elections/home">Elections page</a>. From 1885 onwards geographical accurate 
+    election maps are available, before that only representative maps are available. For most elections hex maps are available showing each seat 
+    as a same-sized hexagon (note that some historic constituencies had multiple seats). For older elections only results are currently available 
+    but these will be expanded over time.</p>
+
+  <p>The <a href="/uk/constituencies/home">Constituencies page</a> has a list of all constituencies, current and historic. All available election 
+    results are detailed on each constituency page together with a graph of party vote over time.</p>
+  
+  <p>Constituencies are allotted as accurately as possible to a county or counties which are listed on the <a href="/uk/counties/home">Counties page</a>.
+    For each county is a graph showing the period of existance of each constituency.</p>
+    
+  <p>The <a href="/uk/people/home">People page</a> lists some MPs and candidates and will be expanded over time. For elections before 1832, there are 
+    links to biographies on the History of Parliament website.</p>
+
+  <p>The <a href="/uk/parties/home">Parties page</a> lists the major political parties and their results at each election.</p>
+
+  <p>The <a href="/uk/boundaries">Boundary Changes page</a> shows the changes to constituencies over time.</p>
+
+  <p>Finally, the <a href="/uk/sources">Sources page</a> lists the sources used in creating this site.</p>
+  
+  <p>It should be noted that "UK" includes (Southern) Irish constituencies from 1801 to 1921.</p>
 
 {% endblock content %}

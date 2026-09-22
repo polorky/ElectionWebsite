@@ -88,6 +88,7 @@ class ConstituencyAdmin(admin.ModelAdmin):
 
 class ElectionAdmin(admin.ModelAdmin):
     list_display = ('type','year','date','constituency')
+    list_filter = ['type','constituency']
 
 class CoalitionAdmin(admin.ModelAdmin):
     list_display = ('name',)
@@ -99,6 +100,7 @@ class ConstituencyResultAdmin(admin.ModelAdmin):
 class CandidateResultAdmin(admin.ModelAdmin):
     list_display = ('constituency','election','party','candidate')
     list_filter = ['constituency','election']
+    search_fields = ['party__name']
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == 'party':
