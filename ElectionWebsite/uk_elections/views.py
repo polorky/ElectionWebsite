@@ -7,7 +7,7 @@ from .parliament_api import TurnoutQuery
 from .validation import compare_constituency, has_any_diff
 from .constants import GEOJSON_NAME_MAP
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.db.models import Q, Count, Sum
 from django.utils import timezone
 import io
@@ -803,40 +803,87 @@ def parliamentapi(request):
 ########## HOP IMPORT VIEWS ##########
 
 def hop_import_list(request):
-    from .hop_import import get_hop_constituency_list
-    try:
-        constituencies = get_hop_constituency_list()
-    except Exception as e:
-        constituencies = []
-        return render(request, 'uk_elections/hop_import_list.html', {
-            'constituencies': [], 'error': str(e),
+    from .hop_import import get_hop_constituency_list, HOP_PERIODS, _HOP_PERIOD_ORDER
+
+    selected = request.GET.getlist('period') or ['1820-1832']
+    selected = [p for p in selected if p in HOP_PERIODS]
+    if not selected:
+        selected = ['1820-1832']
+
+    period_data = []
+    errors = []
+    total = 0
+    for period in _HOP_PERIOD_ORDER:
+        if period not in selected:
+            continue
+        try:
+            constituencies = get_hop_constituency_list(period)
+        except Exception as e:
+            constituencies = []
+            errors.append(f'{period}: {e}')
+        period_data.append({
+            'period': period,
+            'label': HOP_PERIODS[period]['label'],
+            'constituencies': constituencies,
+            'count': len(constituencies),
         })
+        total += len(constituencies)
+
     return render(request, 'uk_elections/hop_import_list.html', {
-        'constituencies': constituencies,
-        'count': len(constituencies),
+        'period_data': period_data,
+        'selected_periods': selected,
+        'all_periods': [{'key': k, 'label': HOP_PERIODS[k]['label']} for k in _HOP_PERIOD_ORDER],
+        'total': total,
+        'error': '; '.join(errors) if errors else '',
     })
 
 
-def hop_import_preview(request, slug):
+def hop_import_preview(request, slug, period='1820-1832'):
     from .hop_import import (
         get_hop_constituency_list, slug_to_name,
-        build_preview, commit_preview,
+        build_preview, commit_preview, HOP_PERIODS, _HOP_PERIOD_ORDER,
     )
     from .scrape_hop_constituencies import fetch_page, parse_elections_table
 
-    # Resolve the display name from the cached CDX list
+    if period not in HOP_PERIODS:
+        period = '1820-1832'
+
+    # Resolve the display name from the cached list for this period
     try:
-        const_list = get_hop_constituency_list()
+        const_list = get_hop_constituency_list(period)
         match = next((c for c in const_list if c[1] == slug), None)
         constituency_name = match[0] if match else slug_to_name(slug)
         hop_url = match[2] if match else (
-            f'https://www.historyofparliamentonline.org/volume/1820-1832/constituencies/{slug}'
+            f'https://www.historyofparliamentonline.org/volume/{period}/constituencies/{slug}'
         )
     except Exception:
         constituency_name = slug_to_name(slug)
-        hop_url = f'https://www.historyofparliamentonline.org/volume/1820-1832/constituencies/{slug}'
+        hop_url = f'https://www.historyofparliamentonline.org/volume/{period}/constituencies/{slug}'
 
-    session_key = f'hop_html_{slug}'
+    session_key = f'hop_html_{period}_{slug}'
+
+    # Links to this constituency in every HOP period
+    period_links = [
+        {
+            'period': p,
+            'label': HOP_PERIODS[p]['label'],
+            'hop_url': f'https://www.historyofparliamentonline.org/volume/{p}/constituencies/{slug}',
+            'import_url': f'/uk/siteadmin/hop-import/{p}/{slug}',
+            'is_current': p == period,
+        }
+        for p in _HOP_PERIOD_ORDER
+    ]
+
+    base_ctx = {
+        'constituency_name': constituency_name,
+        'hop_url': hop_url,
+        'slug': slug,
+        'period': period,
+        'period_label': HOP_PERIODS[period]['label'],
+        'period_links': period_links,
+    }
+
+    from .hop_html_manager import load_local_html
 
     def _soup_from_html(html):
         from bs4 import BeautifulSoup
@@ -848,62 +895,147 @@ def hop_import_preview(request, slug):
             return None, 'No election table found in this HTML.'
         return build_preview(rows, constituency_name), None
 
+    def _get_soup():
+        """Return (soup, source_label, fetch_error). Checks local cache before web."""
+        local_html = load_local_html('constituencies', period, slug)
+        if local_html:
+            return _soup_from_html(local_html), 'local cache', ''
+        soup, err = fetch_page(hop_url)
+        return soup, 'web', err
+
     if request.method == 'POST':
         raw_html = request.POST.get('raw_html', '').strip()
 
         if raw_html:
-            # User pasted page source — build preview from it
             request.session[session_key] = raw_html
             preview, err = _build_from_soup(_soup_from_html(raw_html))
             if err:
-                return render(request, 'uk_elections/hop_import_preview.html', {
-                    'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-                    'error': err,
-                })
-            return render(request, 'uk_elections/hop_import_preview.html', {
-                'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-                'preview': preview, 'committed': False,
-            })
+                return render(request, 'uk_elections/hop_import_preview.html',
+                              {**base_ctx, 'error': err})
+            return render(request, 'uk_elections/hop_import_preview.html',
+                          {**base_ctx, 'preview': preview, 'committed': False})
 
-        # Commit step — re-parse from session HTML or re-fetch
+        # Commit step — session HTML → local cache → web fetch
         stored_html = request.session.pop(session_key, None)
         if stored_html:
             soup = _soup_from_html(stored_html)
         else:
-            soup, fetch_error = fetch_page(hop_url)
+            soup, _src, fetch_error = _get_soup()
             if not soup:
-                return render(request, 'uk_elections/hop_import_preview.html', {
-                    'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-                    'error': f'Could not fetch HOP page to commit. ({fetch_error})',
-                })
+                return render(request, 'uk_elections/hop_import_preview.html',
+                              {**base_ctx, 'error': f'Could not fetch HOP page to commit. ({fetch_error})'})
         rows = parse_elections_table(soup, constituency_name)
         preview = build_preview(rows, constituency_name)
         stats = commit_preview(preview)
-        return render(request, 'uk_elections/hop_import_preview.html', {
-            'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-            'committed': True, 'stats': stats,
-        })
+        return render(request, 'uk_elections/hop_import_preview.html',
+                      {**base_ctx, 'committed': True, 'stats': stats})
 
-    # GET — try to fetch automatically
-    soup, fetch_error = fetch_page(hop_url)
+    # GET — local cache → web fetch
+    soup, source, fetch_error = _get_soup()
     if not soup:
-        return render(request, 'uk_elections/hop_import_preview.html', {
-            'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-            'error': f'Could not fetch HOP page automatically. ({fetch_error})',
-            'show_paste_form': True,
-        })
+        return render(request, 'uk_elections/hop_import_preview.html',
+                      {**base_ctx, 'error': f'Could not fetch HOP page automatically. ({fetch_error})',
+                       'show_paste_form': True})
     rows = parse_elections_table(soup, constituency_name)
     if not rows:
-        return render(request, 'uk_elections/hop_import_preview.html', {
-            'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-            'error': 'No election table found on this HOP page.',
-            'show_paste_form': True,
-        })
+        return render(request, 'uk_elections/hop_import_preview.html',
+                      {**base_ctx, 'error': 'No election table found on this HOP page.',
+                       'show_paste_form': True})
     preview = build_preview(rows, constituency_name)
-    return render(request, 'uk_elections/hop_import_preview.html', {
-        'constituency_name': constituency_name, 'hop_url': hop_url, 'slug': slug,
-        'preview': preview, 'committed': False,
+    return render(request, 'uk_elections/hop_import_preview.html',
+                  {**base_ctx, 'preview': preview, 'committed': False,
+                   'html_source': source})
+
+
+########## HOP DOWNLOAD VIEWS ##########
+
+def hop_download_page(request):
+    from .hop_html_manager import HOP_ALL_PERIODS, PAGE_TYPES, count_downloaded
+
+    status_rows = [
+        {
+            'key': period_key,
+            'label': period_label,
+            'counts': [
+                {'type': pt, 'count': count_downloaded(pt, period_key)}
+                for pt in PAGE_TYPES
+            ],
+        }
+        for period_key, period_label in HOP_ALL_PERIODS
+    ]
+    return render(request, 'uk_elections/hop_download.html', {
+        'all_periods': HOP_ALL_PERIODS,
+        'page_types': PAGE_TYPES,
+        'status_rows': status_rows,
+        'letters': list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
     })
+
+
+def hop_download_run(request):
+    """POST: stream download progress as newline-delimited JSON."""
+    import json as _json
+    from .hop_html_manager import HOP_ALL_PERIODS
+    from .hop_import import get_hop_constituency_list, HOP_PERIODS
+
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+
+    period = request.POST.get('period', '1820-1832')
+    page_type = request.POST.get('page_type', 'constituencies')
+    selected_letters = set(request.POST.getlist('letters'))
+    skip_existing = request.POST.get('skip_existing', 'true') == 'true'
+    try:
+        delay = max(0.0, min(5.0, float(request.POST.get('delay', '1.0'))))
+    except (ValueError, TypeError):
+        delay = 1.0
+
+    valid_periods = {k for k, _ in HOP_ALL_PERIODS}
+    if period not in valid_periods:
+        period = '1820-1832'
+    if page_type not in ('constituencies', 'members'):
+        page_type = 'constituencies'
+
+    if page_type == 'constituencies':
+        from .hop_html_manager import download_pages
+        all_slugs = get_hop_constituency_list(period)
+        if selected_letters:
+            filtered = [(n, s, u) for n, s, u in all_slugs
+                        if n and n[0].upper() in selected_letters]
+        else:
+            filtered = list(all_slugs)
+
+        def generate():
+            yield _json.dumps({'type': 'start', 'total': len(filtered)}) + '\n'
+            ok = skip = error = 0
+            for prog in download_pages(page_type, period, filtered,
+                                        delay=delay, skip_existing=skip_existing):
+                if prog['status'] == 'ok':      ok += 1
+                elif prog['status'] == 'skip':  skip += 1
+                else:                           error += 1
+                yield _json.dumps(prog) + '\n'
+            yield _json.dumps({'type': 'done', 'ok': ok, 'skip': skip, 'error': error}) + '\n'
+
+    else:
+        # Members: fetch index pages by letter to discover slugs, then download each
+        from .hop_html_manager import download_member_pages_by_letter
+        letters_list = sorted(selected_letters) if selected_letters else list('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+
+        def generate():
+            yield _json.dumps({'type': 'start', 'total': None, 'mode': 'members'}) + '\n'
+            ok = skip = error = 0
+            for prog in download_member_pages_by_letter(
+                    period, letters_list, delay=delay, skip_existing=skip_existing):
+                if prog.get('phase') == 'download':
+                    if prog['status'] == 'ok':      ok += 1
+                    elif prog['status'] == 'skip':  skip += 1
+                    else:                           error += 1
+                yield _json.dumps(prog) + '\n'
+            yield _json.dumps({'type': 'done', 'ok': ok, 'skip': skip, 'error': error}) + '\n'
+
+    response = StreamingHttpResponse(generate(), content_type='application/x-ndjson')
+    response['X-Accel-Buffering'] = 'no'
+    response['Cache-Control'] = 'no-cache'
+    return response
 
 
 ########## VALIDATION VIEWS ##########

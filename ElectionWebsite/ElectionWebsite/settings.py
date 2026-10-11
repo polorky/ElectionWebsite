@@ -98,3 +98,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Send origin as Referer on cross-origin requests (required by OSM tile policy)
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'

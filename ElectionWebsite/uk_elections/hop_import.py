@@ -17,9 +17,48 @@ from .models import (
 )
 
 # ── Constituency list cache ───────────────────────────────────────────────────
-_CONSTITUENCY_CACHE = None   # list of (display_name, slug, hop_url)
+HOP_PERIODS = {
+    '1820-1832': {
+        'label': '1820–1832',
+        'start_year': 1820,
+        'end_year': 1832,
+        'ge_years': ['1820', '1826', '1830', '1831', '1832'],
+    },
+    '1790-1820': {
+        'label': '1790–1820',
+        'start_year': 1790,
+        'end_year': 1820,
+        'ge_years': ['1790', '1796', '1802', '1806', '1807', '1812', '1818', '1820'],
+    },
+    '1754-1790': {
+        'label': '1754–1790',
+        'start_year': 1754,
+        'end_year': 1790,
+        'ge_years': ['1754', '1761', '1768', '1774', '1780', '1784', '1790'],
+    },
+    '1715-1754': {
+        'label': '1715–1754',
+        'start_year': 1715,
+        'end_year': 1754,
+        'ge_years': ['1715', '1722', '1727', '1734', '1741', '1747', '1754'],
+    },
+    '1690-1715': {
+        'label': '1690–1715',
+        'start_year': 1690,
+        'end_year': 1715,
+        'ge_years': ['1690', '1695', '1698', '1700', '1701', '1702', '1705', '1708', '1710', '1713', '1715'],
+    },
+    '1660-1690': {
+        'label': '1660–1690',
+        'start_year': 1660,
+        'end_year': 1690,
+        'ge_years': ['1660', '1661', '1679', '1681', '1685', '1689', '1690'],
+    },
+}
 
-_HOP_YEARS = ['1820', '1826', '1830', '1831']
+_HOP_PERIOD_ORDER = ['1660-1690', '1690-1715', '1715-1754', '1754-1790', '1790-1820', '1820-1832']
+
+_CONSTITUENCY_CACHES = {}   # period → list of (display_name, slug, hop_url)
 
 
 def _name_to_slug(name):
@@ -30,40 +69,60 @@ def _name_to_slug(name):
     return slug.replace(' ', '-').replace('(', '%28').replace(')', '%29')
 
 
-def get_hop_constituency_list():
+def get_hop_constituency_list(period='1820-1832'):
     """
-    Return cached list of (display_name, slug, hop_url) for all 1820-1832
-    constituencies, built from the DB (no CDX API call needed).
+    Return cached list of (display_name, slug, hop_url) for constituencies
+    in the given HOP period, built from the DB.
     """
-    global _CONSTITUENCY_CACHE
-    if _CONSTITUENCY_CACHE is None:
-        _CONSTITUENCY_CACHE = _build_list_from_db()
-    return _CONSTITUENCY_CACHE
+    if period not in _CONSTITUENCY_CACHES:
+        _CONSTITUENCY_CACHES[period] = _build_list_from_db(period)
+    return _CONSTITUENCY_CACHES[period]
 
 
-def _build_list_from_db():
-    """Build the constituency list from CandidateResult + alternating Constituency records."""
-    # Constituencies that have results in any of the four GEs
+def _build_list_from_db(period='1820-1832'):
+    """Build the constituency list from CandidateResult records, falling back to date-range."""
+    config = HOP_PERIODS.get(period, HOP_PERIODS['1820-1832'])
+
+    # Primary: constituencies with election data already in the DB for this period
     names_with_data = set(
         CandidateResult.objects
-        .filter(election__type='GE', election__year__in=_HOP_YEARS)
+        .filter(election__type='GE', election__year__in=config['ge_years'])
         .values_list('constituency__name', flat=True)
         .distinct()
     )
-    # Alternating constituencies (Scottish burghs) may lack results in some years
-    names_alt = set(
-        Constituency.objects
-        .filter(alternating__isnull=False)
-        .exclude(alternating='')
-        .values_list('name', flat=True)
-    )
+
+    if not names_with_data:
+        # No election data yet — fall back to Constituency date-range query
+        from django.db.models import Q
+        from django.utils.timezone import make_aware
+        from datetime import datetime
+        p_start = make_aware(datetime(config['start_year'], 1, 1))
+        p_end = make_aware(datetime(config['end_year'], 12, 31))
+        names_with_data = set(
+            Constituency.objects
+            .filter(
+                Q(start_date__lte=p_end) | Q(start_date__isnull=True),
+                Q(end_date__gte=p_start) | Q(end_date__isnull=True),
+            )
+            .values_list('name', flat=True)
+            .distinct()
+        )
+
+    # For 1820-1832, also include alternating constituencies (Scottish burghs)
+    if period == '1820-1832':
+        names_with_data |= set(
+            Constituency.objects
+            .filter(alternating__isnull=False)
+            .exclude(alternating='')
+            .values_list('name', flat=True)
+        )
+
     result = []
-    for name in sorted(names_with_data | names_alt):
-        # Prefer hop_name for slug if set (handles name mismatches)
+    for name in sorted(names_with_data):
         const = Constituency.objects.filter(name=name).order_by('start_date').first()
         hop_display = (const.hop_name if const and const.hop_name else name)
         slug = _name_to_slug(hop_display)
-        url = f'https://www.historyofparliamentonline.org/volume/1820-1832/constituencies/{slug}'
+        url = f'https://www.historyofparliamentonline.org/volume/{period}/constituencies/{slug}'
         result.append((name, slug, url))
     return result
 
@@ -742,12 +801,20 @@ def commit_preview(preview):
                 constituency=const,
                 notes=elec_data.get('be_notes', ''),
                 oldMP=elec_data.get('old_mp_name') or None,
+                turnout_votes=elec_data.get('total_votes') or None,
             )
             stats['elections_created'] += 1
         elif election and etype == 'BE':
+            changed = False
             old_mp = elec_data.get('old_mp_name')
             if old_mp and not election.oldMP:
                 election.oldMP = old_mp
+                changed = True
+            total_votes = elec_data.get('total_votes')
+            if total_votes and not election.turnout_votes:
+                election.turnout_votes = total_votes
+                changed = True
+            if changed:
                 election.save()
 
         if not election:

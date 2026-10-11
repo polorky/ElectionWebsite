@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block title %}HOP HTML Download Manager{% endblock %}
+{% block content %}
+<style>
+  h1 { margin-bottom:4px; }
+  .sub { font-size:13px; color:#555; margin-bottom:20px; }
+
+  /* Status table */
+  .status-table { border-collapse:collapse; font-size:13px; margin-bottom:24px; }
+  .status-table th { background:#1565c0; color:#fff; padding:6px 12px; font-weight:600; text-align:center; }
+  .status-table th.period-col { text-align:left; }
+  .status-table td { padding:5px 12px; border-bottom:1px solid #eee; text-align:center; }
+  .status-table td.period-name { text-align:left; font-weight:500; color:#333; }
+  .count-zero  { color:#bbb; }
+  .count-some  { color:#1976d2; font-weight:600; }
+
+  /* Download form */
+  .dl-form { background:#f9f9f9; border:1px solid #ddd; border-radius:6px; padding:18px 20px; }
+  .dl-form h2 { font-size:15px; margin:0 0 16px; }
+  .form-row { display:flex; flex-wrap:wrap; gap:24px; margin-bottom:16px; align-items:flex-start; }
+  .form-group { display:flex; flex-direction:column; gap:6px; }
+  .form-group label.group-label { font-size:12px; font-weight:700; text-transform:uppercase;
+                                   letter-spacing:.4px; color:#555; }
+  select, input[type=range] { font-size:13px; }
+  select { padding:5px 8px; border:1px solid #ccc; border-radius:4px; }
+
+  .radio-group { display:flex; gap:14px; }
+  .radio-group label { font-size:13px; display:flex; align-items:center; gap:5px; cursor:pointer; }
+
+  /* Letter grid */
+  .letter-grid { display:flex; flex-wrap:wrap; gap:4px; }
+  .letter-grid label { width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+                        border:1px solid #ccc; border-radius:3px; font-size:13px; cursor:pointer;
+                        background:#fff; transition:background .1s; }
+  .letter-grid label:hover { background:#e3f2fd; border-color:#90caf9; }
+  .letter-grid input[type=checkbox]:checked + span { font-weight:700; color:#1976d2; }
+  .letter-grid input[type=checkbox] { display:none; }
+  .letter-grid label.checked { background:#1976d2; color:#fff; border-color:#1976d2; }
+
+  .letter-shortcuts { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  .letter-shortcuts button { font-size:12px; padding:2px 10px; border:1px solid #ccc;
+                              border-radius:3px; background:#fff; cursor:pointer; color:#555; }
+  .letter-shortcuts button:hover { background:#e3f2fd; border-color:#90caf9; }
+
+  .delay-row { display:flex; align-items:center; gap:10px; font-size:13px; }
+  .delay-row input[type=range] { width:120px; }
+
+  .skip-row { display:flex; align-items:center; gap:6px; font-size:13px; }
+
+  .btn-start { background:#1976d2; color:#fff; border:none; border-radius:4px;
+               padding:10px 28px; font-size:14px; font-weight:600; cursor:pointer; margin-top:8px; }
+  .btn-start:hover { background:#1565c0; }
+  .btn-start:disabled { background:#90a4ae; cursor:not-allowed; }
+
+  /* Progress area */
+  #dl-progress { display:none; margin-top:20px; }
+  .progress-bar-wrap { background:#e0e0e0; border-radius:4px; height:12px; margin:8px 0 4px; }
+  .progress-bar-fill { background:#1976d2; height:100%; border-radius:4px; width:0;
+                        transition:width .3s; }
+  .progress-stats { font-size:13px; color:#555; display:flex; gap:20px; margin-bottom:10px; }
+  .progress-stats .ok   { color:#2e7d32; font-weight:600; }
+  .progress-stats .skip { color:#888; }
+  .progress-stats .err  { color:#b71c1c; font-weight:600; }
+
+  #dl-log { max-height:320px; overflow-y:auto; font-family:monospace; font-size:11px;
+             border:1px solid #ddd; border-radius:4px; padding:8px; background:#fafafa; }
+  .log-ok    { color:#2e7d32; }
+  .log-skip  { color:#999; }
+  .log-error { color:#b71c1c; font-weight:600; }
+  .log-done  { color:#1565c0; font-weight:700; font-size:12px; margin-top:4px; }
+</style>
+
+<h1>HOP HTML Download Manager</h1>
+<p class="sub">
+  Download and cache HOP pages locally to
+  <code>Data/hop_html/{type}/{period}/</code> — the import tool will use these
+  automatically, avoiding repeated web fetches.
+  <a href="{% url 'hop_import_list' %}" style="color:#1976d2;">← HOP Import</a>
+</p>
+
+<!-- Status table -->
+<table class="status-table">
+  <thead>
+    <tr>
+      <th class="period-col">Period</th>
+      {% for pt in page_types %}<th>{{ pt|capfirst }}</th>{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in status_rows %}
+    <tr>
+      <td class="period-name">{{ row.label }}</td>
+      {% for c in row.counts %}
+        <td class="{% if c.count %}count-some{% else %}count-zero{% endif %}">{{ c.count }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- Download form -->
+<div class="dl-form">
+  <h2>Download pages</h2>
+  <form id="dl-form" onsubmit="startDownload(event)">
+    {% csrf_token %}
+
+    <div class="form-row">
+
+      <div class="form-group">
+        <label class="group-label">Period</label>
+        <select name="period" id="period-select">
+          {% for period_key, period_label in all_periods %}
+            <option value="{{ period_key }}"
+              {% if period_key == '1820-1832' %}selected{% endif %}>
+              {{ period_label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="group-label">Page type</label>
+        <div class="radio-group">
+          {% for pt in page_types %}
+            <label>
+              <input type="radio" name="page_type" value="{{ pt }}"
+                     {% if pt == 'constituencies' %}checked{% endif %}>
+              {{ pt|capfirst }}
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="group-label">Delay between requests</label>
+        <div class="delay-row">
+          <input type="range" name="delay" id="delay-range" min="0.5" max="3.0" step="0.25" value="1.0"
+                 oninput="document.getElementById('delay-val').textContent = (+this.value).toFixed(2) + 's'">
+          <span id="delay-val">1.00s</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="group-label">Options</label>
+        <div class="skip-row">
+          <input type="checkbox" name="skip_existing_cb" id="skip-cb" checked
+                 onchange="document.querySelector('[name=skip_existing]').value = this.checked ? 'true' : 'false'">
+          <input type="hidden" name="skip_existing" value="true">
+          <label for="skip-cb" style="cursor:pointer;">Skip already-downloaded pages</label>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="form-group" style="margin-bottom:14px;">
+      <label class="group-label">Letters to download</label>
+      <div class="letter-shortcuts">
+        <button type="button" onclick="setLetters('all')">All</button>
+        <button type="button" onclick="setLetters('none')">None</button>
+        <button type="button" onclick="setLetters('az-m')">A–M</button>
+        <button type="button" onclick="setLetters('n-z')">N–Z</button>
+        <button type="button" onclick="setLetters('l-z')">L–Z</button>
+      </div>
+      <div class="letter-grid" id="letter-grid">
+        {% for letter in letters %}
+          <label id="lbl-{{ letter }}" onclick="toggleLetter('{{ letter }}')">
+            <input type="checkbox" name="letters" value="{{ letter }}" checked>
+            <span>{{ letter }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button class="btn-start" type="submit" id="btn-start">Start Download</button>
+    <button type="button" id="btn-stop" style="display:none;margin-top:8px;margin-left:8px;
+      font-size:13px;padding:8px 18px;border:1px solid #ccc;border-radius:4px;cursor:pointer;"
+      onclick="stopDownload()">Stop</button>
+  </form>
+</div>
+
+<!-- Progress -->
+<div id="dl-progress">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px;">
+    <strong style="font-size:14px;" id="progress-title">Downloading…</strong>
+    <span style="font-size:12px;color:#888;" id="progress-count"></span>
+  </div>
+  <div class="progress-bar-wrap">
+    <div class="progress-bar-fill" id="progress-fill"></div>
+  </div>
+  <div class="progress-stats">
+    <span>Saved: <span class="ok" id="stat-ok">0</span></span>
+    <span>Skipped: <span class="skip" id="stat-skip">0</span></span>
+    <span>Errors: <span class="err" id="stat-err">0</span></span>
+  </div>
+  <div id="dl-log"></div>
+</div>
+
+<script>
+// ── Letter grid helpers ──────────────────────────────────────────────────────
+function toggleLetter(l) {
+  const lbl = document.getElementById('lbl-' + l);
+  const cb  = lbl.querySelector('input');
+  cb.checked = !cb.checked;
+  lbl.classList.toggle('checked', cb.checked);
+}
+
+function setLetters(mode) {
+  const labels = document.querySelectorAll('#letter-grid label');
+  labels.forEach(lbl => {
+    const l = lbl.id.replace('lbl-', '');
+    let checked = false;
+    if (mode === 'all')  checked = true;
+    if (mode === 'az-m') checked = l <= 'M';
+    if (mode === 'n-z')  checked = l >= 'N';
+    if (mode === 'l-z')  checked = l >= 'L';
+    // mode === 'none' → stays false
+    lbl.querySelector('input').checked = checked;
+    lbl.classList.toggle('checked', checked);
+  });
+}
+
+// Initialise checked state styling
+document.querySelectorAll('#letter-grid input[type=checkbox]').forEach(cb => {
+  cb.closest('label').classList.toggle('checked', cb.checked);
+});
+
+// ── Download ──────────────────────────────────────────────────────────────────
+let _abortCtrl = null;
+
+function getCsrf() {
+  const m = document.cookie.match(/csrftoken=([^;]+)/);
+  return m ? m[1] : '';
+}
+
+function appendLog(html) {
+  const log = document.getElementById('dl-log');
+  log.insertAdjacentHTML('beforeend', html);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function startDownload(e) {
+  e.preventDefault();
+  const form = document.getElementById('dl-form');
+  const btn  = document.getElementById('btn-start');
+  const stop = document.getElementById('btn-stop');
+
+  btn.disabled = true;
+  stop.style.display = 'inline-block';
+
+  document.getElementById('dl-progress').style.display = 'block';
+  document.getElementById('dl-log').innerHTML = '';
+  document.getElementById('stat-ok').textContent   = '0';
+  document.getElementById('stat-skip').textContent = '0';
+  document.getElementById('stat-err').textContent  = '0';
+  document.getElementById('progress-fill').style.width = '0';
+  document.getElementById('progress-title').textContent = 'Downloading…';
+
+  const data = new FormData(form);
+  _abortCtrl = new AbortController();
+
+  try {
+    const resp = await fetch('{% url "hop_download_run" %}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCsrf() },
+      body: data,
+      signal: _abortCtrl.signal,
+    });
+
+    const reader = resp.body.getReader();
+    const dec    = new TextDecoder();
+    let buf = '';
+    let ok = 0, skip = 0, err = 0, total = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();   // incomplete last line stays in buffer
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let msg;
+        try { msg = JSON.parse(line); } catch { continue; }
+
+        if (msg.type === 'start') {
+          total = msg.total;   // may be null for members (unknown upfront)
+          const titleStr = total != null ? `Downloading ${total} pages…` : 'Downloading members…';
+          document.getElementById('progress-title').textContent = titleStr;
+
+        } else if (msg.type === 'done') {
+          document.getElementById('progress-title').textContent =
+            `Done — ${msg.ok} saved, ${msg.skip} skipped, ${msg.error} errors`;
+          document.getElementById('progress-fill').style.width = '100%';
+          appendLog(`<div class="log-done">✓ Complete: ${msg.ok} saved · ${msg.skip} skipped · ${msg.error} errors</div>`);
+
+        } else if (msg.phase === 'index') {
+          // Member letter index fetch
+          if (msg.status === 'fetching') {
+            appendLog(`<div class="log-skip">── Fetching index for letter ${msg.letter}…</div>`);
+          } else if (msg.status === 'ok') {
+            appendLog(`<div class="log-skip">── Letter ${msg.letter}: found ${msg.total} members</div>`);
+          } else {
+            appendLog(`<div class="log-error">── Letter ${msg.letter} index failed: ${msg.error}</div>`);
+          }
+
+        } else {
+          // Constituency progress row, or member phase='download'
+          const isDownload = !msg.phase || msg.phase === 'download';
+          if (isDownload) {
+            if (msg.status === 'ok')    ok++;
+            if (msg.status === 'skip')  skip++;
+            if (msg.status === 'error') err++;
+            document.getElementById('stat-ok').textContent   = ok;
+            document.getElementById('stat-skip').textContent = skip;
+            document.getElementById('stat-err').textContent  = err;
+          }
+          // Progress bar: use total (constituencies) or letter-level done/total (members)
+          const barTotal = total != null ? total : msg.total;
+          if (barTotal > 0) {
+            const pct = Math.round((msg.done / barTotal) * 100);
+            document.getElementById('progress-fill').style.width = pct + '%';
+            document.getElementById('progress-count').textContent =
+              `${msg.done} / ${barTotal}`;
+          }
+          if (msg.status !== 'skip') {
+            const cls = msg.status === 'ok' ? 'log-ok' : 'log-error';
+            const src = msg.source ? ` (${msg.source})` : '';
+            const errTxt = msg.error ? ` — ${msg.error}` : '';
+            appendLog(`<div class="${cls}">[${msg.letter || '?'}] ${msg.name}${src}${errTxt}</div>`);
+          }
+        }
+      }
+    }
+  } catch (ex) {
+    if (ex.name !== 'AbortError') {
+      appendLog(`<div class="log-error">Connection error: ${ex}</div>`);
+    } else {
+      appendLog('<div class="log-error">Download stopped by user.</div>');
+    }
+  }
+
+  btn.disabled = false;
+  stop.style.display = 'none';
+  _abortCtrl = null;
+}
+
+function stopDownload() {
+  if (_abortCtrl) _abortCtrl.abort();
+}
+</script>
+{% endblock %}

@@ -12,8 +12,8 @@ parsing_list = (
                 #('Elections', 'general_election'),
                 #('Const_sum', 'constituency'),
                 #('Const_full', 'result'),
-                #('Const_full', 'byelection'),
-                ('Const_full', 'winner_only'),
+                ('Const_full', 'byelection'),
+                #('Const_full', 'winner_only'),
             )
 
 
@@ -303,8 +303,30 @@ class Parser:
         return events, dates_sorted
 
     def _parse_be_date(self, year, actual_date):
-        if actual_date:
-            return actual_date
+        import numpy as np
+        import pandas as pd
+
+        # Normalise whatever pandas gives us from the Excel cell
+        parsed = None
+        if isinstance(actual_date, (pd.Timestamp, np.datetime64)):
+            ts = pd.Timestamp(actual_date)
+            if ts is not pd.NaT:
+                parsed = ts.to_pydatetime().replace(tzinfo=None)
+        elif isinstance(actual_date, datetime):
+            parsed = actual_date
+        elif isinstance(actual_date, str) and actual_date.strip():
+            # Pre-1900 dates can't be stored as Excel serials, so they arrive as strings
+            for fmt in ('%d/%m/%Y', '%Y %d%b', '%Y %b', '%Y-%m-%d', '%d %b %Y', '%d-%b-%Y'):
+                try:
+                    parsed = datetime.strptime(actual_date.strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+        # numpy.nan / None / unrecognised type → fall through to year string
+
+        if parsed:
+            return parsed
+
         year_clean = year.replace('BB', '').replace('B', '')
         if len(year_clean) > 8:
             return datetime.strptime(year_clean, "%Y %d%b")
@@ -337,7 +359,7 @@ class Parser:
                 actual_date = sub_df['Date'].values[0]
                 election_date = self._parse_be_date(year, actual_date)
                 constituency = self._get_constituency_at_date(constituency_name, election_date)
-                be_obj, num_elected = self.create_byelection(year, constituency, sub_df)
+                be_obj, num_elected = self.create_byelection(year, constituency, sub_df, election_date)
 
                 for row in sub_df.index:
                     if sub_df.loc[row,'Party'] == 'Turnout':
@@ -450,7 +472,7 @@ class Parser:
                 unopposed = unopposed,
                 elected = elected,
                 disqualified = disqualified,
-                notes = notes
+                notes = ''
             )
 
         return num_disqualified
@@ -488,10 +510,7 @@ class Parser:
             notes=notes
             )
     
-    def create_byelection(self, year, constituency, sub_df):
-
-        actual_date = sub_df['Date'].values[0] if 'Date' in sub_df.columns else None
-        date = self._parse_be_date(year, actual_date)
+    def create_byelection(self, year, constituency, sub_df, election_date):
 
         if 'Turnout' in sub_df['Party'].values:
             turnout_votes = sub_df[sub_df['Party'] == 'Turnout']['Votes'].values[0]
@@ -512,11 +531,13 @@ class Parser:
         else:
             notes = notes[0]
 
-        current_mps = constituency.get_current_mps(date)
+        current_mps = constituency.get_current_mps(election_date)
         num_elected = 1
         if ']' in notes:
             oldMP, notes = notes.replace('[','').split(']')
-            if oldMP == 'Both':
+            if oldMP[0] == '!':
+                oldMP = oldMP[1:]
+            elif oldMP == 'Both':
                 oldMP = ', '.join(current_mps)
                 num_elected = 2
             elif oldMP not in [mp.split(' ')[-1] for mp in current_mps]:
@@ -529,12 +550,12 @@ class Parser:
                 raise ValueError(f'No predecessor MP found in notes for {constituency.name} {year}, but constituency has more than 1 seat')
         
         try:
-            by_election = Election.objects.get(type='BE', date=date, constituency=constituency)
+            by_election = Election.objects.get(type='BE', date=election_date, constituency=constituency)
         except:
             by_election = Election.objects.create(
                 type='BE',
                 year=year,
-                date=date,
+                date=election_date,
                 turnout_votes=turnout_votes,
                 turnout_percent=turnout_percent,
                 notes=notes,

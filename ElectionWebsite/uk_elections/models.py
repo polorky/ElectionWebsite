@@ -63,24 +63,52 @@ class Constituency(models.Model):
         return f'{self.name} ({self.start_date.strftime("%Y/%m/%d")} - {self.end_date.strftime("%Y/%m/%d") if self.end_date else "Present"} - Seats: {self.seats})'
 
     def get_current_mps(self, date):
+        # Find the most recent GE with results for this constituency
+        last_ge = (
+            Election.objects
+            .filter(
+                type='GE',
+                candidateresult__constituency=self,
+                candidateresult__elected=True,
+                date__date__lte=date,
+            )
+            .order_by('-date')
+            .first()
+        )
+        if not last_ge:
+            return []
 
-        nearest_lower_date = ''
-        nearest_election = ''
+        mps = list(
+            CandidateResult.objects
+            .filter(constituency=self, election=last_ge, elected=True)
+            .values_list('candidate', flat=True)
+        )
 
-        for election in Election.objects.all():
-            if election.date.replace(tzinfo=None) > date:
+        # Apply any BEs for this constituency that fall between the GE and the given date
+        bes = (
+            Election.objects
+            .filter(
+                type='BE',
+                constituency=self,
+                date__date__gt=last_ge.date.date(),
+                date__date__lte=date,
+            )
+            .order_by('date')
+        )
+        for be in bes:
+            be_winners = list(
+                CandidateResult.objects
+                .filter(constituency=self, election=be, elected=True)
+                .values_list('candidate', flat=True)
+            )
+            if not be_winners:
                 continue
-            elif not nearest_lower_date:
-                nearest_election = election
-                nearest_lower_date = election.date.replace(tzinfo=None)
-            elif election.date.replace(tzinfo=None) > nearest_lower_date:
-                nearest_election = election
-                nearest_lower_date = election.date.replace(tzinfo=None)
+            if be.oldMP:
+                old = be.oldMP.strip().lower()
+                mps = [mp for mp in mps if mp.strip().lower() if old not in mp]
+            mps.extend(be_winners)
 
-        results = CandidateResult.objects.filter(constituency=self).filter(election=nearest_election).filter(elected=True)
-        mps = [result.candidate for result in results]
-
-        return mps         
+        return mps
 
 class Election(models.Model):
     '''
@@ -90,17 +118,17 @@ class Election(models.Model):
     year = models.CharField(max_length=10,blank=True,null=True)
     date = models.DateTimeField()
     endDate = models.DateTimeField(blank=True,null=True)
-    turnout_votes = models.FloatField(blank=True,null=True)
+    turnout_votes = models.IntegerField(blank=True,null=True)
     turnout_percent = models.FloatField(blank=True,null=True)
     alternate = models.IntegerField(default=1)
     notes = models.TextField(blank=True,null=True)
     description = models.TextField(blank=True,null=True)
 
     # For general elections only
-    largest_party = models.TextField(blank=True,null=True)
-    prime_minister = models.TextField(blank=True,null=True)
-    second_party = models.TextField(blank=True,null=True)
-    opp_leader = models.TextField(blank=True,null=True)
+    largest_party = models.CharField(max_length=100,blank=True,null=True)
+    prime_minister = models.CharField(max_length=100,blank=True,null=True)
+    second_party = models.CharField(max_length=100,blank=True,null=True)
+    opp_leader = models.CharField(max_length=100,blank=True,null=True)
     map = models.CharField(max_length=20,blank=True,null=True)
     hex = models.CharField(max_length=20,blank=True,null=True)
     gj = models.CharField(max_length=20,blank=True,null=True)
@@ -170,7 +198,6 @@ class CandidateResult(models.Model):
     unopposed = models.BooleanField(default=False)
     elected = models.BooleanField(default=False)
     disqualified = models.BooleanField(default=False)
-    winner_only = models.BooleanField(default=False)
     notes = models.TextField(blank=True,null=True)
 
     def __str__(self):

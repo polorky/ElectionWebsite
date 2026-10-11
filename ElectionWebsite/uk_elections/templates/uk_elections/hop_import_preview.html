@@ -74,6 +74,21 @@
   .person-create { color:#6a1b9a; font-size:12px; }
   .person-link   { color:#283593; font-size:12px; }
   .match-quality { font-size:10px; color:#aaa; }
+
+  .period-bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+                margin:8px 0 14px; font-size:12px; }
+  .period-bar .lbl { color:#777; margin-right:4px; }
+  .period-pill {
+    display:inline-flex; align-items:center; gap:5px;
+    padding:3px 10px; border-radius:12px; border:1px solid #ccc;
+    font-size:12px; text-decoration:none; color:#555; background:#fafafa;
+    white-space:nowrap;
+  }
+  .period-pill:hover { background:#e3f2fd; border-color:#90caf9; color:#0d47a1; }
+  .period-pill.current { background:#1976d2; color:#fff; border-color:#1976d2; font-weight:600; }
+  .period-pill a { color:inherit; text-decoration:none; margin-left:3px; font-size:11px; opacity:.75; }
+  .period-pill a:hover { opacity:1; }
+  .period-pill.current a { opacity:.85; }
 </style>
 
 <div class="hop-nav">
@@ -81,15 +96,36 @@
 </div>
 
 <h1>{{ constituency_name }}
-  <span class="hop-ext-link">(<a href="{{ hop_url }}" target="_blank" rel="noopener">HOP page ↗</a>)</span>
+  <span class="hop-ext-link">— {{ period_label }}
+    (<a href="{{ hop_url }}" target="_blank" rel="noopener">HOP page ↗</a>)
+  </span>
 </h1>
+
+<div class="period-bar">
+  <span class="lbl">HOP volumes:</span>
+  {% for pl in period_links %}
+    <span class="period-pill {% if pl.is_current %}current{% endif %}">
+      {% if pl.is_current %}
+        {{ pl.label }}
+        <a href="{{ pl.hop_url }}" target="_blank" rel="noopener" title="Open HOP page for {{ pl.label }}">↗</a>
+      {% else %}
+        <a href="{{ pl.import_url }}" title="Import from {{ pl.label }}">{{ pl.label }}</a>
+        <a href="{{ pl.hop_url }}" target="_blank" rel="noopener" title="Open HOP page for {{ pl.label }}">↗</a>
+      {% endif %}
+    </span>
+  {% endfor %}
+</div>
 
 {% if error %}
   <div class="hop-error">{{ error }}</div>
-  {% if show_paste_form %}
-  <div style="margin-top:16px;">
+{% endif %}
+
+<details {% if show_paste_form %}open{% endif %} style="margin:12px 0 16px;">
+  <summary style="font-size:13px;cursor:pointer;color:#1976d2;user-select:none;">
+    Paste HTML manually{% if not show_paste_form %} (override auto-fetch){% endif %}
+  </summary>
+  <div style="margin-top:10px;">
     <p style="font-size:13px;margin-bottom:8px;">
-      <strong>Manual fallback:</strong>
       Open the <a href="{{ hop_url }}" target="_blank" rel="noopener">HOP page ↗</a> in your browser,
       right-click → <em>View Page Source</em>, select all, copy, and paste below.
     </p>
@@ -101,7 +137,9 @@
       <button type="submit" class="btn-commit" style="margin-top:8px;">Parse pasted HTML</button>
     </form>
   </div>
-  {% endif %}
+</details>
+
+{% if error %}
 
 {% elif committed %}
   <div class="hop-success">
